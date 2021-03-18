@@ -31,6 +31,7 @@ DEALINGS IN THE SOFTWARE.
 #include "SoundExpressions.h"
 #include "SoundEmojiSynthesizer.h"
 #include "StreamSplitter.h"
+#include "MicRecorder.h"
 
 using namespace codal;
 
@@ -79,6 +80,10 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     //Initilise level detector SPL and attach to splitter
     if (levelSPL == NULL)
         levelSPL = new LevelDetectorSPL(*splitter, 75.0, 60.0, 9, 52, DEVICE_ID_MICROPHONE, false, false);
+
+    //Initilise Mic Recorder
+    if (recorder == NULL)
+        recorder = new MicRecorder(*splitter, mixer, false);
 
     // Register listener for splitter events
     if(EventModel::defaultEventBus){

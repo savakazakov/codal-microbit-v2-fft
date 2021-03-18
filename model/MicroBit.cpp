@@ -348,4 +348,3 @@ void microbit_dmesg_flush()
 #endif
 #endif
 }
-

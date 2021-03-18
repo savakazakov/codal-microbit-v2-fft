@@ -34,6 +34,7 @@ DEALINGS IN THE SOFTWARE.
 #include "StreamSplitter.h"
 #include "LevelDetector.h"
 #include "LevelDetectorSPL.h"
+#include "MicRecorder.h"
 
 namespace codal
 {
@@ -49,6 +50,7 @@ namespace codal
         StreamSplitter          *splitter;      // Stream Splitter instance
         LevelDetector           *level;         // Level Detector instance
         LevelDetectorSPL        *levelSPL;      // Level Detector SPL instance
+        MicRecorder             *recorder;      // Mic Recorder instance
 
         private:
         bool speakerEnabled;                    // State of on board speaker
