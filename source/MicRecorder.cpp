@@ -57,8 +57,7 @@ int MicRecorder::pullRequest()
     ManagedBuffer b = upstream.pull();
 
     if(recording && position < BUFFER_SIZE){
-        //savedRecording[position] = (uint8_t*) &b[0];
-        savedRecording[position] = (int16_t*) &b[0];
+        savedRecording[position] = b;
         position++;
     }
     if(recording && position >= BUFFER_SIZE){
@@ -100,24 +99,16 @@ void MicRecorder::playback()
     //Take the array and give it to mixer 2
     if (sampleSource == NULL){
         sampleSource = new MemorySource();
-        //DATASTREAM_FORMAT_UNKNOWN - DATASTREAM_FORMAT_16BIT_UNSIGNED - DATASTREAM_FORMAT_8BIT_SIGNED - DATASTREAM_FORMAT_8BIT_UNSIGNED
-        //Managed buffer payload is uint8_t
-        sampleSource->setFormat(DATASTREAM_FORMAT_16BIT_SIGNED);
-        sampleSource->setBufferSize(sizeof(savedRecording[0]));
+        sampleSource->setFormat(DATASTREAM_FORMAT_8BIT_SIGNED);
+        sampleSource->setBufferSize(512);
     }
     
-    mixer.addChannel(*sampleSource, 22000, 255);
+    mixer.addChannel(*sampleSource, 11000, 255);
     MicroBitAudio::requestActivation();
    
     for(int i = 0 ; i < BUFFER_SIZE ; i++)
     {
-    	//Do we need to extract the payload bytes?
-    	//uint8_t byteArray[32];
-    	//savedRecording[i]->readBytes(byteArray, 0, 32, false);
-
-    	//Only 4 bytes?
-    	//DMESG("%d", sizeof(savedRecording[i]));
-		sampleSource->play(savedRecording[i], sizeof(savedRecording[i]));
+		sampleSource->play(&savedRecording[i][0], 512);
     }
     
 }

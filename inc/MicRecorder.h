@@ -33,7 +33,7 @@ DEALINGS IN THE SOFTWARE.
 /**
  * Default configuration values
  */
-#define BUFFER_SIZE                                     64
+#define BUFFER_SIZE                                     128
 
 namespace codal{
     class MicRecorder : public CodalComponent, public DataSink
@@ -43,9 +43,7 @@ namespace codal{
         bool            recording;                      // Is the component currently recording audio
         int             position;                       // Pointer to a position in the savedRecordings array
         DataSource      &upstream;                      // The component producing data to process
-        //ManagedBuffer   *savedRecording[BUFFER_SIZE];   // Array of mic buffers that make up a recording
-        //uint8_t         *savedRecording[BUFFER_SIZE];   // Array of ints from the buffer payload that make up a recording
-        int16_t         *savedRecording[BUFFER_SIZE];   // Array of ints from the buffer payload that make up a recording
+        ManagedBuffer   savedRecording[BUFFER_SIZE];   // Array of mic buffers that make up a recording
 
         Mixer2          &mixer;
 
