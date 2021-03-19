@@ -35,6 +35,8 @@ DEALINGS IN THE SOFTWARE.
 
 using namespace codal;
 static MemorySource *sampleSource = NULL;
+auto t1 = system_timer_current_time();
+auto t2 = system_timer_current_time();
 
 MicRecorder::MicRecorder(DataSource &source, Mixer2 &mixer, bool connectImmediately) : upstream(source), mixer(mixer)
 {
@@ -61,7 +63,9 @@ int MicRecorder::pullRequest()
         position++;
     }
     if(recording && position >= BUFFER_SIZE){
+    	t2 = system_timer_current_time();
     	DMESG("%s", "Done Recording ");
+    	DMESG("%s %d", "recorded for ", (int)(t2-t1));
     	recording = false;
     }
 
@@ -80,6 +84,7 @@ void MicRecorder::startRecording()
 		DMESG("Start Recording");
     	position = 0;
     	recording = true;
+    	t1 = system_timer_current_time();
     }
 
 }
@@ -103,12 +108,12 @@ void MicRecorder::playback()
         sampleSource->setBufferSize(512);
     }
     
-    mixer.addChannel(*sampleSource, 11000, 255);
+    mixer.addChannel(*sampleSource, 22000, 255);
     MicroBitAudio::requestActivation();
    
     for(int i = 0 ; i < BUFFER_SIZE ; i++)
     {
-		sampleSource->play(&savedRecording[i][0], 512);
+		sampleSource->play(savedRecording[i]);
     }
     
 }

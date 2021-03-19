@@ -33,7 +33,7 @@ DEALINGS IN THE SOFTWARE.
 /**
  * Default configuration values
  */
-#define BUFFER_SIZE                                     128
+#define BUFFER_SIZE                                     160
 
 namespace codal{
     class MicRecorder : public CodalComponent, public DataSink
