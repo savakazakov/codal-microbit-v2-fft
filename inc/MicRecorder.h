@@ -44,6 +44,7 @@ namespace codal{
         int             position;                       // Pointer to a position in the savedRecordings array
         DataSource      &upstream;                      // The component producing data to process
         ManagedBuffer   savedRecording[BUFFER_SIZE];   // Array of mic buffers that make up a recording
+        ManagedBuffer   lastBuffer;
 
         Mixer2          &mixer;
 

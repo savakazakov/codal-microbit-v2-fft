@@ -32,9 +32,11 @@ DEALINGS IN THE SOFTWARE.
 #include "MemorySource.h"
 #include "MicroBitAudio.h"
 #include "Mixer2.h"
+#include "../source/samples/SerialStreamer.h"
 
 using namespace codal;
 static MemorySource *sampleSource = NULL;
+static SerialStreamer *streamer = NULL;
 auto t1 = system_timer_current_time();
 auto t2 = system_timer_current_time();
 
@@ -56,16 +58,16 @@ MicRecorder::MicRecorder(DataSource &source, Mixer2 &mixer, bool connectImmediat
  */
 int MicRecorder::pullRequest()
 {
-    ManagedBuffer b = upstream.pull();
+    lastBuffer = upstream.pull();
 
     if(recording && position < BUFFER_SIZE){
-        savedRecording[position] = b;
+        savedRecording[position] = lastBuffer;
         position++;
     }
     if(recording && position >= BUFFER_SIZE){
     	t2 = system_timer_current_time();
-    	DMESG("%s", "Done Recording ");
-    	DMESG("%s %d", "recorded for ", (int)(t2-t1));
+    	//DMESG("%s", "Done Recording ");
+    	//DMESG("%s %d", "recorded for ", (int)(t2-t1));
     	recording = false;
     }
 
@@ -75,13 +77,13 @@ int MicRecorder::pullRequest()
 void MicRecorder::startRecording()
 {
 	if(!activated){
-    	DMESG("Mic recorder connecting");
+    	//DMESG("Mic recorder connecting");
         upstream.connect(*this);
         activated = true;
 	}
 
     if(!recording){
-		DMESG("Start Recording");
+		//DMESG("Start Recording");
     	position = 0;
     	recording = true;
     	t1 = system_timer_current_time();
@@ -100,16 +102,18 @@ void MicRecorder::stopRecording()
 void MicRecorder::playback()
 {
 	DMESG("playback");
-   
+  
     //Take the array and give it to mixer 2
     if (sampleSource == NULL){
         sampleSource = new MemorySource();
         sampleSource->setFormat(DATASTREAM_FORMAT_8BIT_SIGNED);
         sampleSource->setBufferSize(512);
+        mixer.addChannel(*sampleSource, 22000, 255);
+        MicroBitAudio::requestActivation();
     }
     
-    mixer.addChannel(*sampleSource, 22000, 255);
-    MicroBitAudio::requestActivation();
+    //if (streamer == NULL)
+        //streamer = new SerialStreamer(*sampleSource, SERIAL_STREAM_MODE_BINARY);
    
     for(int i = 0 ; i < BUFFER_SIZE ; i++)
     {
