@@ -31,7 +31,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 /**
- * Default configuration values
+ * Default configuration values - 160 from testing which is close to max before getting memory error
  */
 #define BUFFER_SIZE                                     160
 
@@ -43,8 +43,8 @@ namespace codal{
         bool            recording;                      // Is the component currently recording audio
         int             position;                       // Pointer to a position in the savedRecordings array
         DataSource      &upstream;                      // The component producing data to process
-        ManagedBuffer   savedRecording[BUFFER_SIZE];   // Array of mic buffers that make up a recording
-        ManagedBuffer   lastBuffer;
+        ManagedBuffer   savedRecording[BUFFER_SIZE];    // Array of mic buffers that make up a recording
+        ManagedBuffer   lastBuffer;                     // Last buffer recieved from the mic
 
         Mixer2          &mixer;
 
@@ -72,9 +72,15 @@ namespace codal{
         void stopRecording();
 
         /*
-         * Playback Saved Recording
+         * Denoise Saved Recording
          */
-        void playback();
+        void denoise();
+
+        /*
+         * Playback Saved Recording
+         * @param sampleRate what sample rate to play the recording back at.
+         */
+        void playback(int sampleRate = 11025);
 
         /*
          * Clear Saved Recording

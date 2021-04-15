@@ -54,7 +54,7 @@ MicRecorder::MicRecorder(DataSource &source, Mixer2 &mixer, bool connectImmediat
 }
 
 /**
- * IF recording - save the mic buffer to an array - else ignore it.
+ * If recording - save the mic buffer to an array - else ignore it.
  */
 int MicRecorder::pullRequest()
 {
@@ -65,7 +65,7 @@ int MicRecorder::pullRequest()
         position++;
     }
     if(recording && position >= BUFFER_SIZE){
-    	t2 = system_timer_current_time();
+    	//t2 = system_timer_current_time();
     	//DMESG("%s", "Done Recording ");
     	//DMESG("%s %d", "recorded for ", (int)(t2-t1));
     	recording = false;
@@ -74,9 +74,11 @@ int MicRecorder::pullRequest()
     return DEVICE_OK;
 }
 
+// Start recording a clip - will overwrite if one already exists
 void MicRecorder::startRecording()
 {
-	if(!activated){
+
+    if(!activated){
     	//DMESG("Mic recorder connecting");
         upstream.connect(*this);
         activated = true;
@@ -84,13 +86,15 @@ void MicRecorder::startRecording()
 
     if(!recording){
 		//DMESG("Start Recording");
+        clearStored();
     	position = 0;
     	recording = true;
-    	t1 = system_timer_current_time();
+    	//t1 = system_timer_current_time();
     }
 
 }
 
+//Stop recording - to allow variable length recordings
 void MicRecorder::stopRecording()
 {
     if(recording){
@@ -99,22 +103,49 @@ void MicRecorder::stopRecording()
     }
 }
 
-void MicRecorder::playback()
+//Denoise the stored sample by applying a low-pass filter
+void MicRecorder::denoise(){
+    int FILTER_SHIFT = 6; //lower = less smoothing
+    int32_t filter_reg = 0;
+    int16_t filter_input;
+    int16_t filter_output;
+
+    for(int i = 0 ; i < BUFFER_SIZE ; i++)
+    {
+        for(int j = 0 ; j < savedRecording[i].length() ; j++){
+            if((int8_t)savedRecording[i][j] < 8 && (int8_t) savedRecording[i][j] > -8){
+                filter_input = (int8_t) savedRecording[i][j];
+                filter_reg = filter_reg - (filter_reg >> FILTER_SHIFT) + filter_input;
+                filter_output = filter_reg >> FILTER_SHIFT;
+                savedRecording[i][j] = filter_output; //set to 0 to completley remove these noisy low level frequencies
+            }
+            
+        }
+    }
+}
+
+// Play back the stored sample
+void MicRecorder::playback(int sampleRate)
 {
 	DMESG("playback");
   
-    //Take the array and give it to mixer 2
     if (sampleSource == NULL){
         sampleSource = new MemorySource();
         sampleSource->setFormat(DATASTREAM_FORMAT_8BIT_SIGNED);
-        sampleSource->setBufferSize(512);
-        mixer.addChannel(*sampleSource, 22000, 255);
+        sampleSource->setBufferSize(256);
+        mixer.addChannel(*sampleSource, sampleRate, 255);
+        mixer.setVolume(1023);
         MicroBitAudio::requestActivation();
     }
+    // TODO - this will set the global mixer sample rate
+    mixer.setSampleRate(sampleRate);
     
-    //if (streamer == NULL)
-        //streamer = new SerialStreamer(*sampleSource, SERIAL_STREAM_MODE_BINARY);
-   
+    /*
+    // Used to debug what we are actually sending to the speaker - save output as a binary and import to audacity to inspect
+    if (streamer == NULL)
+        streamer = new SerialStreamer(*sampleSource, SERIAL_STREAM_MODE_BINARY);
+    */
+
     for(int i = 0 ; i < BUFFER_SIZE ; i++)
     {
 		sampleSource->play(savedRecording[i]);
