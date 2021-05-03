@@ -34,6 +34,7 @@ DEALINGS IN THE SOFTWARE.
 #include "StreamSplitter.h"
 #include "LevelDetector.h"
 #include "LevelDetectorSPL.h"
+#include "MicRecorder.h"
 
 namespace codal
 {
@@ -49,6 +50,8 @@ namespace codal
         StreamSplitter          *splitter;      // Stream Splitter instance
         LevelDetector           *level;         // Level Detector instance
         LevelDetectorSPL        *levelSPL;      // Level Detector SPL instance
+        MicRecorder             *recorder;      // Mic Recorder instance
+        NRF52ADCChannel         *mic;                   // Microphone ADC Channel from uBit.IO
 
         private:
         bool speakerEnabled;                    // State of on board speaker
@@ -59,7 +62,6 @@ namespace codal
         MixerChannel *soundExpressionChannel;   // Mixer channel associated with sound expression audio
         NRF52PWM *pwm;                          // PWM driver used for sound generation (mixer output)
         NRF52ADC &adc;                          // ADC from MicroBitConstructor
-        NRF52ADCChannel *mic;                   // Microphone ADC Channel from uBit.IO
         NRF52Pin &microphone;                   // Microphone pin passed from MicroBit constructor
         NRF52Pin &runmic;                       // Runmic pin passed from MicroBit constructor
 

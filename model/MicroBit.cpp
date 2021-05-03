@@ -26,6 +26,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MicroBit.h"
 #include "Timer.h"
 #include "MicroBitDevice.h"
+#include "CodalDmesg.h"
 
 using namespace codal;
 
@@ -311,7 +312,7 @@ void MicroBit::onListenerRegisteredEvent(Event evt)
             audio.level->getValue();
             break;
 
-        case DEVICE_ID_SYSTEM_LEVEL_DETECTOR_SPL:
+        case DEVICE_ID_MICROPHONE:
             // A listener has been registered for the level detector SPL.
             // The level detector SPL uses lazy instantiation, we just need to read the data once to start it running.
             audio.levelSPL->getValue();
@@ -347,4 +348,3 @@ void microbit_dmesg_flush()
 #endif
 #endif
 }
-
