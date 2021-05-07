@@ -27,20 +27,24 @@ DEALINGS IN THE SOFTWARE.
 #define MICROBIT_AUDIO_PROCESSOR_H
 
 #define MIC_SAMPLE_RATE         (11 * 1024)
-#define AUDIO_SAMPLES_NUMBER    1024
+#define FFT_SAMPLES    2048
 
 class MicroBitAudioProcessor : public DataSink
 {
     DataSource      &audiostream;          
     int             zeroOffset;             // unsigned value that is the best effort guess of the zero point of the data source
     int             divisor;                // Used for LINEAR modes
-    arm_rfft_fast_instance_f32 fft_instance;
-    float *buf; 
-    float *output; 
-    float *mag; 
+    arm_cfft_radix4_instance_f32 fft_instance;
+    float32_t input[FFT_SAMPLES];
+    float32_t output[FFT_SAMPLES/2];
+    float32_t positiveOutput [FFT_SAMPLES/4];
+    float32_t buf[FFT_SAMPLES/2];
+    uint32_t fftSize = FFT_SAMPLES/2;
+    uint32_t ifftFlag;
+    uint32_t bitReverse;
+    uint32_t resultIndex;
     uint16_t position;
     bool recording;
-    float rec[AUDIO_SAMPLES_NUMBER * 2];
     int lastFreq;
 
     public:

@@ -23,23 +23,18 @@ DEALINGS IN THE SOFTWARE.
 
 MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream(source)
 {
+
+    this->ifftFlag = 0;
+    this->bitReverse = 1;
     
     divisor = 1;
     lastFreq = 0;
-    arm_rfft_fast_init_f32(&fft_instance, AUDIO_SAMPLES_NUMBER);
-
-    /* Double Buffering: We allocate twice the number of samples*/
-    buf = (float *)malloc(sizeof(float) * AUDIO_SAMPLES_NUMBER * 2);
-    output = (float *)malloc(sizeof(float) * AUDIO_SAMPLES_NUMBER);
-    mag = (float *)malloc(sizeof(float) * AUDIO_SAMPLES_NUMBER / 2);
+    //Init CFFT module
+    arm_cfft_radix4_init_f32(&fft_instance, fftSize, ifftFlag, bitReverse);
 
     position = 0;
     recording = false;
 
-    if (buf == NULL || output == NULL || mag == NULL) {
-        DMESG("DEVICE_NO_RESOURCES");
-        target_panic(DEVICE_OOM);
-    }
     DMESG("%s %p", "Audio Processor connecting to upstream, Pointer to me : ", this);
     audiostream.connect(*this);
 }
@@ -48,12 +43,10 @@ MicroBitAudioProcessor::~MicroBitAudioProcessor()
 {
     free(buf);
     free(output);
-    free(mag);
 }
 
 int MicroBitAudioProcessor::pullRequest()
 {
-
     int s;
     int result;
 
@@ -81,37 +74,63 @@ int MicroBitAudioProcessor::pullRequest()
         result = s;
 
         data++;
-        buf[position++] = (float)result;
+        buf[position++] = (float32_t)result;
 
-
-        if (!(position % AUDIO_SAMPLES_NUMBER))
+        // we have enough samples (no windowing here)
+        if (position == FFT_SAMPLES/2)
         {
             float maxValue = 0;
             uint32_t index = 0;
 
-            /* We have AUDIO_SAMPLES_NUMBER samples, we can run the FFT on them */
-            uint16_t offset = position <= AUDIO_SAMPLES_NUMBER ? 0 : AUDIO_SAMPLES_NUMBER;
-            if (offset != 0)
-                position = 0;
+            // Interlace 0s
+            for(int i = 0 ; i < 2048 ; i++){
+                input[i] = 0;
+            }
+            int j = 0;
+            for(int i = 0 ; i < 1024 ; i++){
+                input[j] = buf[i];
+                j+=2;
+            }
+
+            DMESGF("===== input =====");
+            for(int i = 0 ; i < 2048 ; i++){
+                //DMESGF("%d", (int) input[i]);
+            }
 
             //DMESG("Run FFT, %d", offset);
             //auto a = system_timer_current_time();
-            arm_rfft_fast_f32(&fft_instance, buf + offset, output, 0);
-            arm_cmplx_mag_f32(output, mag, AUDIO_SAMPLES_NUMBER / 2);
-            arm_max_f32(mag + 1, AUDIO_SAMPLES_NUMBER / 2 - 1, &maxValue, &index);
-            //auto b = system_timer_current_time();
+            arm_cfft_radix4_f32(&fft_instance, input);
 
-            //DMESG("Before FFT: %d", (int)a);
-            //DMESG("After FFT: %d (%d)", (int)b, (int)(b - a));
+            arm_cmplx_mag_f32(input, output, fftSize);
 
-            uint32_t freq = ((uint32_t)MIC_SAMPLE_RATE / AUDIO_SAMPLES_NUMBER) * (index + 1);
-            lastFreq = (int) freq;
-            // DMESG("Freq: %d (max: %d.%d, Index: %d)",
-            //       freq,
-            //       (int)maxValue,
-            //       ((int)(maxValue * 100) % 100),
-            //       index);
+            DMESGF("===== output =====");
+            for(int i = 0 ; i < (int)fftSize / 2 ; i ++ ){
+                DMESGF("%d", (int) output[i]);
+                positiveOutput[i] = output[i];
+            }
+
+            /* Calculates maxValue and returns corresponding BIN value */ 
+            arm_max_f32(positiveOutput, fftSize/2, &maxValue, &resultIndex); 
+            DMESGF("Highest energy bin: %d", (int) resultIndex);
+            DMESGF("%d %d %d",(int) positiveOutput[resultIndex-1], (int) positiveOutput[resultIndex], (int) positiveOutput[resultIndex+1] );
+            
+            //Do Parabolic Interpolation
+            float32_t offsetTop = (positiveOutput[resultIndex+1] - positiveOutput[resultIndex-1]);
+            float32_t offsetBottom = 2*((2*positiveOutput[resultIndex]) - positiveOutput[resultIndex-1] - positiveOutput[resultIndex+1]);
+            float32_t offset = offsetTop/ offsetBottom;
+
+            DMESGF("Offest for parabolic interpolation = %d %d %d", (int) offsetTop, (int) offsetBottom, (int) offset); 
+            float32_t frequencyResolution = 11000/1024;
+            float32_t frequencyDetected = frequencyResolution * ((float32_t) resultIndex + (float32_t) offset);
+            DMESGF("Freq %d", (int) frequencyDetected);
+            if(420<frequencyDetected && frequencyDetected <450){
+                    DMESG("A 440hz Detected");
+            }
+
+            position = 0;
         }
+
+
     }
 
     return DEVICE_OK;
