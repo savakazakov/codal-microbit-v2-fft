@@ -26,8 +26,27 @@ DEALINGS IN THE SOFTWARE.
 #ifndef MICROBIT_AUDIO_PROCESSOR_H
 #define MICROBIT_AUDIO_PROCESSOR_H
 
-#define MIC_SAMPLE_RATE         (11 * 1024)
-#define FFT_SAMPLES    2048
+#define MIC_SAMPLE_RATE     (11 * 1024)
+#define FFT_SAMPLES         2048
+#define NUM_PEAKS           15
+#define CYCLE_SIZE          128
+
+
+class MicroBitAudioProcessor;
+
+class PeakDataPoint
+{
+    public:
+    int value;
+    int index;
+    PeakDataPoint* pair = NULL;
+    public:
+    PeakDataPoint(int value, int index);
+    PeakDataPoint();
+    ~PeakDataPoint();
+
+
+};
 
 class MicroBitAudioProcessor : public DataSink
 {
@@ -39,22 +58,32 @@ class MicroBitAudioProcessor : public DataSink
     float32_t output[FFT_SAMPLES/2];
     float32_t positiveOutput [FFT_SAMPLES/4];
     float32_t buf[FFT_SAMPLES/2];
+    float32_t cpy [FFT_SAMPLES/4];
+    uint32_t topValues[10];
+    uint32_t topIndex[10];
     uint32_t fftSize = FFT_SAMPLES/2;
     uint32_t ifftFlag;
     uint32_t bitReverse;
     uint32_t resultIndex;
     uint16_t position;
-    bool recording;
+    char closestNote;
     int lastFreq;
+    bool recording;
+    PeakDataPoint peaks[NUM_PEAKS];
 
     public:
     MicroBitAudioProcessor(DataSource& source); 
     ~MicroBitAudioProcessor(); 
     virtual int pullRequest();
+    int getClosestNoteSquare();
+    char getClosestNote();
     int getFrequency();
+    char frequencyToNote(int frequency);
     int setDivisor(int d);
     void startRecording();
     void stopRecording(MicroBit& uBit);
 };
+
+
 
 #endif
