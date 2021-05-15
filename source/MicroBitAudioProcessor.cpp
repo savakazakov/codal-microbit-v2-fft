@@ -65,7 +65,7 @@ int MicroBitAudioProcessor::pullRequest()
     int16_t *data = (int16_t *) &mic_samples[0];
 
     //Dont divide by 2 if using 8 bit
-    for (int i=0; i < mic_samples.length(); i++)
+    for (int i=0; i < mic_samples.length()/2; i++)
     {
         //shuffle buffer
         for(int i = (FFT_SAMPLES/2)-1 ; i > 0  ; i--){
@@ -91,39 +91,15 @@ int MicroBitAudioProcessor::pullRequest()
             int j = 0;
             for(int i = 0 ; i < 1024 ; i++){
                 input[j] = buf[i];
-                if(buf[i]<min){
-                    min = buf[i];
-                }
-                if(buf[i]>max){
-                    max = buf[i];
-                }
                 j+=2;
             }
 
-            // int FILTER_SHIFT = 6; //lower = less smoothing
-            // int32_t filter_reg = 0;
-            // int8_t filter_input;
-            // int8_t filter_output;          
-
-            // normalize every other value (the input buffers not the 0s)
-            //for(int i = 0 ; i  < 2048 ; i+=2){
-                //normalise
-                //input[i] = 2*((input[i] - min)/(max-min)) -1;
-
-                //smooth with low pass filter
-                // filter_input = input[i];
-                // filter_reg = filter_reg - (filter_reg >> FILTER_SHIFT) + filter_input;
-                // filter_output = filter_reg >> FILTER_SHIFT;
-                // input[i] = filter_output; //set to 0 to completley remove these noisy low level frequencies
-
-            //}
 
             //DMESGF("===== input =====");
             //for(int i = 0 ; i < 1024 ; i++){
                 //DMESGF("%d", (int) input[i]);
             //}
 
-            //DMESG("Run FFT, %d", offset);
             //auto a = system_timer_current_time();
             arm_cfft_radix4_f32(&fft_instance, input);
 
@@ -137,9 +113,7 @@ int MicroBitAudioProcessor::pullRequest()
 
             /* Calculates maxValue and returns corresponding BIN value */ 
             arm_max_f32(positiveOutput, fftSize/2, &maxValue, &resultIndex); 
-            //DMESGF("Highest energy bin: %d", (int) resultIndex);
-            //DMESGF("%d %d %d",(int) positiveOutput[resultIndex-1], (int) positiveOutput[resultIndex], (int) positiveOutput[resultIndex+1] );
-            
+
             //Do Parabolic Interpolation
             float32_t offsetTop = (positiveOutput[resultIndex+1] - positiveOutput[resultIndex-1]);
             float32_t offsetBottom = 2*((2*positiveOutput[resultIndex]) - positiveOutput[resultIndex-1] - positiveOutput[resultIndex+1]);
@@ -325,121 +299,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
     }
 
     return result;
-
-/*
-
-    //put into pairs
-        //retrieve highest peaks
-    for(int i = 0 ; i < numPairs ; i++){
-        //pair with closest high peak
-        for(int j = 0 ; j < NUM_PEAKS ; j++){
-            if((int) peaks[j].value == (int) highestValues[i]){
-                if(j == 0){
-                    peaks[j].pair = &peaks[j+1];
-                }
-                else if(j == NUM_PEAKS-1){
-                    peaks[j].pair = &peaks[j-1];
-                }
-                else{
-                    //check top distance but remove circular reference i.e. A->B B->A is the same pair
-                    int distance = (int) peaks[j+1].index - (int) peaks[j].index;
-                    //check bottom distance
-                    if((int) ((int) peaks[j].index - (int) peaks[j-1].index) < (int) distance){
-
-                        peaks[j].pair = &peaks[j-1];
-                    }
-                    else{
-                        peaks[j].pair = &peaks[j+1];
-                    }
-                }
-            }
-        }
-    }
-
-    //calcualte inter-pair distance
-        
-    int ipDistances[NUM_PEAKS]; //inter-peak distances
-    int distancePointer = 0;
-    std::unordered_map<int, int> hash;
-
-    for(int i = NUM_PEAKS-1 ; i > 0 ; i--){
-        if(peaks[i].pair != NULL){
-            int distance = (int) ((int) peaks[i].index - (int) peaks[i].pair->index);
-            //We want 'right peaks' as the main, and 'left peaks' as the pair
-            if((int) distance > 0){
-                ipDistances[distancePointer] = (int)distance;
-                hash[ipDistances[distancePointer]]++;
-                distancePointer++;
-                //DMESGF("top value %d with index %d", peaks[i].value, peaks[i].index);
-                //DMESGF("Paired with value %d with index %d", peaks[i].pair->value, peaks[i].pair->index);
-            };
-        }
-    }
-    //remove any anomolous pairs (to account for single peak start)
-    //std::sort(ipDistances, ipDistances+distancePointer);
-
-    count = 0;
-    result = -1;
-
-    for(auto i : hash){
-        if(count < i.second){
-            result = i.first;
-            count = i.second;
-        }
-    }
-
-    // for(int i = 0 ; i < distancePointer ; i++){
-    //     DMESGF("inter-peak distance %d", ipDistances[i]);
-    // }
-    // DMESGF("Most common %d", (int) result);
-
-    //Remove anomolies to get a list of the final peak points, right spike then left in sets of 2.
-    int numFinalPoints = numPairs*2;
-    int finalPoints[numFinalPoints] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
-    int fpPointer = 0;
-    for(int i = NUM_PEAKS-1 ; i > 0 ; i--){
-        if(peaks[i].pair != NULL){
-            int distance = (int) ((int) peaks[i].index - (int) peaks[i].pair->index);
-            if((int) distance > 0 && (int)distance < result+2 && (int) distance > result-2){
-                finalPoints[fpPointer] = peaks[i].index;
-                finalPoints[fpPointer+1] = peaks[i].pair->index;
-                fpPointer+=2;
-                //DMESGF("top value %d with index %d", peaks[i].value, peaks[i].index);
-                //DMESGF("Paired with value %d with index %d", peaks[i].pair->value, peaks[i].pair->index);
-            };
-        }
-    }
-
-    std::unordered_map<int, int> hash2;
-    //calcualte distance between peaks
-    for(int i = 0 ; i < numFinalPoints ; i+=2){
-        if(finalPoints[i] > -1 && finalPoints[i+2] > 1){
-            //DMESGF("Inter Peak value %d", finalPoints[i] - finalPoints[i+2]);
-            //DMESGF("Inter Peak value %d", finalPoints[i+1] - finalPoints[i+3]);
-            hash2[finalPoints[i] - finalPoints[i+2]]++;
-            hash2[finalPoints[i+1] - finalPoints[i+3]]++;
-        }
-    }
-
-    count = 0;
-    result = -1;
-
-    for(auto i : hash2){
-        if(count < i.second){
-            result = i.first;
-            count = i.second;
-        }
-    }
-
-    DMESGF("long result %d", result);
-
-    //get frequency as int
-    float frequencyResolution = (11000/2)/1024;
-    float frequencyDetected = frequencyResolution * (result);
-    //DMESGF("Freq %d", (int) frequencyDetected);
-
-
-*/
 
 }
 
