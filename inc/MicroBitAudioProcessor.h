@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 #define FFT_SAMPLES         2048
 #define NUM_PEAKS           15
 #define CYCLE_SIZE          128
+#define NUM_RUNS_AVERAGE    8
 
 
 class MicroBitAudioProcessor;
@@ -65,10 +66,15 @@ class MicroBitAudioProcessor : public DataSink
     uint32_t ifftFlag;
     uint32_t bitReverse;
     uint32_t resultIndex;
+    uint32_t secondHarmonicIndex;
     uint16_t position;
     char closestNote;
+    char secondHarmonic;
     int lastFreq;
+    int secondHarmonicFreq;
     bool recording;
+    int highestBinBuffer[NUM_RUNS_AVERAGE];
+
     PeakDataPoint peaks[NUM_PEAKS];
 
     public:

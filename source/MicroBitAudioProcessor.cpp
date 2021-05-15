@@ -59,27 +59,35 @@ int MicroBitAudioProcessor::pullRequest()
     if (!recording)
         return DEVICE_OK;
 
-    //Mic samples are uint8_t
+    //Mic samples are uint8_t?
 
     //int8_t *data = (int8_t *) &mic_samples[0];
     int16_t *data = (int16_t *) &mic_samples[0];
 
-    for (int i=0; i < mic_samples.length() / 2; i++)
+    //Dont divide by 2 if using 8 bit
+    for (int i=0; i < mic_samples.length(); i++)
     {
+        //shuffle buffer
+        for(int i = (FFT_SAMPLES/2)-1 ; i > 0  ; i--){
+            buf[i] = buf[i-1];
+        }
 
-        buf[position++] = (int16_t) *data++;;
+        //put new sample at start of buffer
+        buf[0] = (int16_t) *data++;
+        position++;
 
-        // we have enough samples (no windowing here)
-        if (position == FFT_SAMPLES/2)
+        // we have cycled
+        if (position == CYCLE_SIZE && recording)
         {
+            position = 0;
             float maxValue = 0;
 
             // Interlace 0s
             for(int i = 0 ; i < 2048 ; i++){
                 input[i] = 0;
             }
-            int16_t min = buf[0];
-            int16_t max = buf[0];
+            int min = buf[0];
+            int max = buf[0];
             int j = 0;
             for(int i = 0 ; i < 1024 ; i++){
                 input[j] = buf[i];
@@ -137,7 +145,12 @@ int MicroBitAudioProcessor::pullRequest()
             float32_t offsetBottom = 2*((2*positiveOutput[resultIndex]) - positiveOutput[resultIndex-1] - positiveOutput[resultIndex+1]);
             float32_t offset = offsetTop/ offsetBottom;
 
-                // TODO Stack interpolation for greater accuracy//
+            //get second harmonic - remove first harmonic and run again
+            positiveOutput[resultIndex] = 0;
+            arm_max_f32(positiveOutput, fftSize/2, &maxValue, &secondHarmonicIndex); 
+
+
+            // TODO Stack interpolation for greater accuracy//
             // int last highestBin (define in h)
             // if(highest bin is the same as last time){
             //     add offset to list
@@ -147,8 +160,19 @@ int MicroBitAudioProcessor::pullRequest()
             //DMESGF("Offest for parabolic interpolation = %d %d %d", (int) offsetTop, (int) offsetBottom, (int) offset); 
             float frequencyResolution = (11000.0f/2.0f)/1024.0f;
             float frequencyDetected = frequencyResolution * ((float) resultIndex + (float) offset);
-            DMESGF("Freq %d", (int) frequencyDetected);
+            float secondHarmonicDetected = frequencyResolution * ((float) secondHarmonicIndex);
             lastFreq = frequencyDetected;
+            secondHarmonicFreq = secondHarmonicDetected;
+            DMESGF("1st Freq %d", (int) frequencyDetected);
+            DMESGF("2nd Freq %d", (int) secondHarmonicDetected);
+
+
+            //Update rolling squre buffer with 0 (so that its reset to 0 if silence and dosnt keep old high peak)
+            for(int i = NUM_RUNS_AVERAGE-1 ; i > 0 ; i --){
+                highestBinBuffer[i] = highestBinBuffer[i-1];
+            }
+            highestBinBuffer[0] = 0;
+
             if(lastFreq<600){
                 //sine wave
                 closestNote = frequencyToNote(lastFreq);
@@ -157,13 +181,8 @@ int MicroBitAudioProcessor::pullRequest()
                 //square wave - probbaly from microbit
                 closestNote = frequencyToNote(getClosestNoteSquare());
             }
-            
-            position = 0;
         }
-
-
     }
-
     return DEVICE_OK;
 }
 
@@ -180,7 +199,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
     //Order peaks
     std::sort(cpy, cpy+(int)fftSize/2);
 
-
     //Get highest ones and their index - dont take if value is within <leeway> bins either side of an already stored point
     int i = 0; //position in peaks array
     int p = 0; //position in cpy buffer of magnitudes
@@ -189,7 +207,7 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
     int leeway = 6;
     int numPairs = 5;
     //int highestValues[numPairs];
-    //untill we have <NUM_PEAKS> data points - Should be enough to find the first 5 pairs giving 5 extra leeway for spurious results
+    //until we have <NUM_PEAKS> data points - Should be enough to find the first 5 pairs giving 5 extra leeway for spurious results
     while( i < NUM_PEAKS){
         int target = (int) cpy[(fftSize/2) - (p+1)];
         pass = true;
@@ -226,7 +244,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
     }
 
     //order by index
-    
     std::sort(peaks, peaks+NUM_PEAKS, sortFunction);
 
     //Get distances between all peaks
@@ -260,11 +277,54 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         }
     }
 
+    //get Second harmonic
+    int secondGap = 0;
+    int secondHarmonicResult = -1;
+
+    for(auto i : hash3){
+        if(secondGap < i.second && i.first != result){
+            secondHarmonicResult = i.first;
+            secondGap = i.second;
+        }
+    }
+
     //result is the FFT bin with peak energy
     DMESGF("Short Result : %d", (int) result);
+    DMESGF("2nd harmonic result %d", (int)secondHarmonicResult);
     float binResolution = (float) ((11000.0f/2.0f)/1024.0f);
     float freqDetected = binResolution * (result);
-    DMESGF("freq Detected %d", (int) freqDetected);
+
+    //DMESGF("freq Detected %d", (int) freqDetected);
+
+    //Add detected frequency to list so anomolies can be removed
+    std::unordered_map<int, int> highestBins;
+    int binPointer = 0;
+    highestBinBuffer[0] = freqDetected;
+    for(int i = 0; i < NUM_RUNS_AVERAGE-1 ; i ++){
+        highestBins[highestBinBuffer[binPointer++]]++;
+    }
+
+    //Average over a few runs to improve accuracy
+    int countAverager = 0;
+    int averageResult = -1;
+
+    for(auto i : highestBins){
+        if(countAverager < i.second && i.first != 0){
+            averageResult = i.first;
+            countAverager = i.second;
+        }
+    }
+
+    lastFreq = averageResult;
+    //DMESG("frequency : %d", result);
+    //clean up
+    for(int i = 0 ; i < NUM_PEAKS ; i++){
+        peaks[i].value = 0;
+        peaks[i].index = 0;
+        peaks[i].pair = NULL;
+    }
+
+    return result;
 
 /*
 
@@ -380,22 +440,11 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
 
 
 */
-    //clean up
-    for(int i = 0 ; i < NUM_PEAKS ; i++){
-        peaks[i].value = 0;
-        peaks[i].index = 0;
-        peaks[i].pair = NULL;
-    }
-
-    return freqDetected;
 
 }
 
 char MicroBitAudioProcessor::getClosestNote(){
-    if(closestNote != NULL){
-        return closestNote;
-    }
-    else return NULL;  
+    return closestNote;
 }
 
 char MicroBitAudioProcessor::frequencyToNote(int frequency){
