@@ -1,14 +1,18 @@
 /*
 The MIT License (MIT)
-Copyright (c) 2020 Arm Limited.
+
+Copyright (c) 2021 Lancaster University.
+
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
 to deal in the Software without restriction, including without limitation
 the rights to use, copy, modify, merge, publish, distribute, sublicense,
 and/or sell copies of the Software, and to permit persons to whom the
 Software is furnished to do so, subject to the following conditions:
+
 The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software.
+
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
@@ -29,7 +33,7 @@ DEALINGS IN THE SOFTWARE.
 #define MIC_SAMPLE_RATE     (11 * 1024)
 #define FFT_SAMPLES         2048
 #define NUM_PEAKS           15
-#define CYCLE_SIZE          128
+#define CYCLE_SIZE          512
 #define NUM_RUNS_AVERAGE    8
 
 
@@ -51,6 +55,10 @@ class PeakDataPoint
 
 class MicroBitAudioProcessor : public DataSink
 {
+
+public:
+        bool recording;
+private:
     DataSource      &audiostream;          
     int             zeroOffset;             // unsigned value that is the best effort guess of the zero point of the data source
     int             divisor;                // Used for LINEAR modes
@@ -59,20 +67,23 @@ class MicroBitAudioProcessor : public DataSink
     float32_t output[FFT_SAMPLES/2];
     float32_t positiveOutput [FFT_SAMPLES/4];
     float32_t buf[FFT_SAMPLES/2];
+    float32_t buf8[FFT_SAMPLES/2];
     float32_t cpy [FFT_SAMPLES/4];
-    uint32_t topValues[10];
-    uint32_t topIndex[10];
+
+    int distances[NUM_PEAKS*NUM_PEAKS];
+    int distancesPointer;
+
     uint32_t fftSize = FFT_SAMPLES/2;
     uint32_t ifftFlag;
     uint32_t bitReverse;
     uint32_t resultIndex;
     uint32_t secondHarmonicIndex;
     uint16_t position;
+    float maxValue;
     char closestNote;
     char secondHarmonic;
     int lastFreq;
     int secondHarmonicFreq;
-    bool recording;
     int highestBinBuffer[NUM_RUNS_AVERAGE];
 
     PeakDataPoint peaks[NUM_PEAKS];
