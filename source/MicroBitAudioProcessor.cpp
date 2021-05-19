@@ -35,7 +35,6 @@ MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream
     this->ifftFlag = 0;
     this->bitReverse = 1;
     this->lastLastFreq = -1;
-    this->outputBuffer = outputBuffer;  
 
     divisor = 1;
     lastFreq = 0;
@@ -43,6 +42,7 @@ MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream
     arm_rfft_fast_init_f32(&fft_instance, FFT_SAMPLES);
 
     ManagedBuffer outputBuffer(outBuf, 10);
+    this->outputBuffer = outputBuffer;  
 
     this->position = FFT_SAMPLES; //first one in to the cycle size overflow buffer (so wrap arround works correctly)
     this->offset = 0;
@@ -150,6 +150,8 @@ int MicroBitAudioProcessor::pullRequest()
                 closestNote = frequencyToNote(getClosestNoteSquare());
                 secondHarmonic = frequencyToNote(secondHarmonicDetected);
             }
+            //DMESGF("%d", closestNote);
+            //DMESGF("%d", secondHarmonic);
             outputBuffer.setByte(0, (uint8_t) closestNote);
             outputBuffer.setByte(1, (uint8_t) (lastFreq/1000)%10);
             outputBuffer.setByte(2, (uint8_t) (lastFreq/100)%10);
