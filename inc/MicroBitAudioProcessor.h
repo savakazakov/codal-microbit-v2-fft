@@ -33,7 +33,7 @@ DEALINGS IN THE SOFTWARE.
 #define MIC_SAMPLE_RATE     (11 * 1024)
 #define FFT_SAMPLES         2048
 #define NUM_PEAKS           15
-#define CYCLE_SIZE          256
+#define CYCLE_SIZE          128
 #define NUM_RUNS_AVERAGE    2 //too big means the notes wont change over to the new one as quickly
 #define AVERAGE_THRESH      NUM_RUNS_AVERAGE/2
 
