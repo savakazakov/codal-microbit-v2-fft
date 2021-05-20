@@ -48,6 +48,8 @@ MorseCode::MorseCode(DataSource& source, char primaryNote, char secondaryNote, P
         //std::find returns the last item in the array if its not found
     this->primaryNote = primaryNote;
     this->secondaryNote = secondaryNote;
+    //TOOD set based off fft cycle size (128 - 18, 256 - 10, 512 - 5)
+    this->avgThresh = 18;
     pin = &p;
     //}
     // if(processor == NULL){
@@ -127,7 +129,7 @@ int MorseCode::pullRequest()
         DMESGF("correct %d", correctCounterP);
 
         //check for primary note
-        if(correctCounterP > AVG_THRESH){
+        if(correctCounterP > avgThresh){
             DMESGF("Add: 1");
             bufP[INPUT_BUF_LEN-1] = 1;
         }
@@ -137,7 +139,7 @@ int MorseCode::pullRequest()
         }
 
         //check for secondary note
-        if(correctCounterS > AVG_THRESH){
+        if(correctCounterS > avgThresh){
             bufS[INPUT_BUF_LEN-1] = 1;
         }
         else{
@@ -317,25 +319,13 @@ void MorseCode::playChar(char c){
     for(char& c : sequence){
         DMESGF("found %c", c);
         if(c == '.')
-            playFrequency(frequency, 550);
+            playFrequency(frequency, DOT_LENGTH);
         else if (c == '-')
-            playFrequency(frequency, 1550);
+            playFrequency(frequency, DOT_LENGTH*3);
         //fap between sections of each note
-        fiber_sleep(500);
+        fiber_sleep(DOT_LENGTH);
     }
     //wait inter-letter gap (3 x time unit)
-    fiber_sleep(1500);
+    fiber_sleep(DOT_LENGTH*3);
 
 }
-
-int MorseCode::syncTest(){
-    if(!(system_timer_current_time() % 500))
-        return 1;
-    else
-        return 0;
-
-
-}
-
-
-

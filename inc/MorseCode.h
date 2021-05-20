@@ -35,7 +35,6 @@ DEALINGS IN THE SOFTWARE.
 #define INPUT_BUF_LEN 7 // max is 7 spaces for a word gap
 #define LETTER_LEN 5
 #define WORD_LEN 20
-#define AVG_THRESH 18 //depends on cycle_size of fft
 
 // class MicroBitAudioProcessor;
 
@@ -75,6 +74,7 @@ class MorseCode : public DataSink
     int                     skipP = 0;
     int                     skipS = 0;
     int                     frequency;
+    int                     avgThresh;
 
     public:
         //TODO default to no note (NULL) - so that any sound can be used (by checking like we do at the start of the constructor)
@@ -89,8 +89,6 @@ class MorseCode : public DataSink
     char lookupLetter(char letterParts[LETTER_LEN]);
     void playFrequency(int frequency, int ms);
     void playChar(char c);
-    int syncTest();
-
 };
 
 
