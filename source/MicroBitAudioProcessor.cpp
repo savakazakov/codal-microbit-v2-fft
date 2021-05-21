@@ -87,7 +87,6 @@ int MicroBitAudioProcessor::pullRequest()
         if (!(position % CYCLE_SIZE))
         {
             //auto a = system_timer_current_time();
-            //DMESGF("run fft position %d, offset %d ", position, offset);
             if(position >= (FFT_SAMPLES + CYCLE_SIZE) -1 )
                 position= 0;
 
@@ -130,9 +129,8 @@ int MicroBitAudioProcessor::pullRequest()
             //TODO filter out so that 2nd harmonic isnt within 5 hz each way of primary
             arm_max_f32(magOut, FFT_SAMPLES/2, &maxValue, &secondHarmonicIndex);
 
-            float frequencyResolution = (11000.0f)/2048.0f;
-            float frequencyDetected = frequencyResolution * ((float) resultIndex + (float) parabolicOffset);
-            float secondHarmonicDetected = frequencyResolution * ((float) secondHarmonicIndex);
+            float frequencyDetected = binResolution * ((float) resultIndex + (float) parabolicOffset);
+            float secondHarmonicDetected = binResolution * ((float) secondHarmonicIndex);
             lastFreq = (int) frequencyDetected;
             secondHarmonicFreq = secondHarmonicDetected;
 
@@ -259,8 +257,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         }
     }
 
-
-    float binResolution = (float) ((11000.0f)/2048.0f);
     float freqDetected = binResolution * (result);
 
     //DMESGF("freq Detected %d", (int) freqDetected);

@@ -48,8 +48,8 @@ MorseCode::MorseCode(DataSource& source, char primaryNote, char secondaryNote, P
         //std::find returns the last item in the array if its not found
     this->primaryNote = primaryNote;
     this->secondaryNote = secondaryNote;
-    //TOOD set based off fft cycle size (128 - 18, 256 - 10, 512 - 5)
-    this->avgThresh = 10;
+    //TOOD set based off fft cycle size (128 - 15-18, 256 - 10, 512 - 5)
+    this->avgThresh = 18;
     pin = &p;
     //}
     // if(processor == NULL){
@@ -158,7 +158,7 @@ int MorseCode::pullRequest()
 
         //auto a = system_timer_current_time();
         doRecognise(bufP, primaryLetter, primaryWord, skipP, letterPosP, wordPosP, oneBeforeP, twoBeforeP);
-        doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
+        //doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
         //DMESGF("time taken %d", (int) (system_timer_current_time() - a));
         DMESGF("samples : %d", samples);
         correctCounterP = 0;
@@ -256,15 +256,10 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
         else if(oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 0 && input[3] == 0 && input[4] == 0 &&
         input[5] == 0 && !wordEmpty){
             //add end of word
-            DMESGF("end of word");
+            DMESGF("end of word - add space");
+            word[wordPos++] = ' ';
             skip = 6;
             letterPos = 0;
-            wordPos = 0;
-            //Print then clear word buffer
-            for(int i = 0 ; i < WORD_LEN ; i++){
-                DMESGF("%c", (char) word[i]);
-                word[i] = '0';
-            }
         }
         else if(oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
             //add dash error correct
@@ -428,4 +423,22 @@ void MorseCode::playString(std::string input, bool primary){
         playChar(c, primary);
     }
 
+}
+
+void MorseCode::serialPrintStored(bool primary){
+    if(primary){
+        printStored(primaryWord, wordPosP);
+    }
+    else{
+        printStored(secondaryWord, wordPosS);
+    }
+}
+
+void printStored(char word[WORD_LEN], int wordPos){
+    wordPos = 0;
+    //Print then clear word buffer
+    for(int i = 0 ; i < WORD_LEN ; i++){
+        DMESGF("%c", (char) word[i]);
+        word[i] = '0';
+    }
 }

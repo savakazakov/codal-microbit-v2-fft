@@ -96,6 +96,8 @@ class MorseCode : public DataSink
     void playFrequency(int frequency, int ms);
     void playChar(char c, bool primary);
     void playString(std::string c, bool primary);
+    void serialPrintStored(bool primary);
+    void printStored(char word[WORD_LEN], int wordPos);
 };
 
 
