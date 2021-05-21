@@ -32,8 +32,8 @@ DEALINGS IN THE SOFTWARE.
 
 #define MIC_SAMPLE_RATE     (11 * 1024)
 #define FFT_SAMPLES         2048
-#define NUM_PEAKS           15
-#define CYCLE_SIZE          128
+#define NUM_PEAKS           10
+#define CYCLE_SIZE          256
 #define NUM_RUNS_AVERAGE    2 //too big means the notes wont change over to the new one as quickly
 #define AVERAGE_THRESH      NUM_RUNS_AVERAGE/2
 
@@ -87,6 +87,8 @@ private:
     int lastLastFreq;
     int secondHarmonicFreq;
     int highestBinBuffer[NUM_RUNS_AVERAGE];
+    int timer = 0;
+    int timer2 = 0;
 
     PeakDataPoint peaks[NUM_PEAKS];
     //stored (char cast as int)Note..(int)Freq digit 1, freq digit 2, digit 3, freq digit 4, (char cast as int)Note ...

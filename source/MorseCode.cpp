@@ -49,7 +49,7 @@ MorseCode::MorseCode(DataSource& source, char primaryNote, char secondaryNote, P
     this->primaryNote = primaryNote;
     this->secondaryNote = secondaryNote;
     //TOOD set based off fft cycle size (128 - 18, 256 - 10, 512 - 5)
-    this->avgThresh = 18;
+    this->avgThresh = 10;
     pin = &p;
     //}
     // if(processor == NULL){
@@ -82,16 +82,21 @@ MorseCode::~MorseCode()
 }
 
 int MorseCode::supportedCheck(){
-        bool found = false;
+        bool foundP = false;
+        bool foundS = false;
         std::map<char, int>::iterator it;
         for(it=supportedNotes.begin(); it!=supportedNotes.end(); ++it){
           if(it->first == primaryNote){
-            frequency = it->second;
-            found = true;
+            frequencyP = it->second;
+            foundP = true;
+          }
+          if(it->first == secondaryNote){
+            frequencyS = it->second;
+            foundS = true;
           }
         }
 
-        if(found){
+        if(foundP && foundS){
             DMESGF("ok");
             return DEVICE_OK; 
         }
@@ -106,12 +111,12 @@ int MorseCode::pullRequest()
     //pull from audio processor that is set up as a data source
     ManagedBuffer noteData = audiostream.pull();
     //DMESGF("length %d", noteData.length());
-
+    
     if(!recognise)
         return DEVICE_OK;
 
     int8_t *data = (int8_t *) &noteData[0];
-
+    samples++;
     if(system_timer_current_time() > timePeriod+DOT_LENGTH){
         //shuffle buffer
         // for(int i = 0 ; i < INPUT_BUF_LEN-2 ; i++){
@@ -121,6 +126,11 @@ int MorseCode::pullRequest()
         //     DMESGF("%d", (int) bufS[i]);
         // }
 
+        //shuffle buff
+        twoBeforeP = oneBeforeP;
+        twoBeforeS = oneBeforeS;
+        oneBeforeP = bufP[INPUT_BUF_LEN-1];
+        oneBeforeS = bufS[INPUT_BUF_LEN-1];
         for(int i = 0 ; i < INPUT_BUF_LEN-1 ; i++){
             bufP[i] = bufP[i+1];
             bufS[i] = bufS[i+1];
@@ -146,17 +156,19 @@ int MorseCode::pullRequest()
             bufS[INPUT_BUF_LEN-1] = 0;
         }
 
-        auto a = system_timer_current_time();
-        doRecognise(bufP, primaryLetter, primaryWord, skipP, letterPosP, wordPosP);
-        doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS);
-        DMESGF("time taken %d", (int) (system_timer_current_time() - a));
-
+        //auto a = system_timer_current_time();
+        doRecognise(bufP, primaryLetter, primaryWord, skipP, letterPosP, wordPosP, oneBeforeP, twoBeforeP);
+        doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
+        //DMESGF("time taken %d", (int) (system_timer_current_time() - a));
+        DMESGF("samples : %d", samples);
         correctCounterP = 0;
         correctCounterS = 0;
+        samples = 0;
         DMESGF("----------");
         timePeriod = system_timer_current_time();
     
     }
+
     // //Print managed buffer recieved
     // for(int i = 0 ; i < noteData.length() ; i++){
     //     if(!(i%5))
@@ -196,7 +208,7 @@ void MorseCode::stopRecognise(){
 
 }
 
-void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos){
+void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos, int oneBefore, int twoBefore){
 
     bool letterEmpty = true;
     bool wordEmpty = true;
@@ -215,18 +227,20 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
 
     if(!(skip > 0)){
 
-        if(input[0] == 1 && input[1] == 0){
+        //TODO decide order
+        if(/*oneBefore == 0 && */input[0] == 1 && input[1] == 0){
             //add dot
             DMESGF("add dot");
             letter[letterPos++] = '.';
             skip = 1;
         }
-        else if(input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
+        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
             //add dash
             DMESGF("add dash");
             letter[letterPos++] = '-';
             skip = 3;
         }
+        //only 2 as one will be skipped as part of inter-character wait?
         else if(input[0] == 0 && input[1] == 0 && input[2] == 0 && !letterEmpty){
             //add end of letter
             DMESGF("end of letter");
@@ -239,7 +253,7 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             }
         }
         //only 6 becasue 7th will be skipped as part of end of inter-character wait
-        else if(input[0] == 0 && input[1] == 0 && input[2] == 0 && input[3] == 0 && input[4] == 0 &&
+        else if(oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 0 && input[3] == 0 && input[4] == 0 &&
         input[5] == 0 && !wordEmpty){
             //add end of word
             DMESGF("end of word");
@@ -252,9 +266,80 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
                 word[i] = '0';
             }
         }
+        else if(oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
+            //add dash error correct
+            DMESGF("add dash 1 ec!");
+            letter[letterPos++] = '-';
+            skip = 3;
+        }
+        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[2] == 0) {
+            //add dash error correct
+            DMESGF("add dash 2 ec!");
+            letter[letterPos++] = '-';
+            skip = 3;
+        }
+        else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 1) {
+            //add dash error correct
+            DMESGF("add dash 3 ec!");
+            letter[letterPos++] = '-';
+            skip = 3;
+        }
+        // else if(twoBefore == 1 && input[0] == 0 && input[1] == 0 && input[2] == 0 && !letterEmpty ) {
+        //     //add dot error correct
+        //     DMESGF("add end dot ec!");
+        //     letter[letterPos++] = '.';
+        //     skip = 2;
+        // }
+        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 1 ) {
+            //add dot error correct
+            DMESGF("add dot 1 ec!");
+            letter[letterPos++] = '.';
+            skip = 1;
+        }
+        //needs re-work as catches the end of letter (3 x 0's)
+        // else if(oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 1 && !letterEmpty) {
+        //     //add dot error correct
+        //     DMESGF("add dot 2 ec!");
+        //     letter[letterPos++] = '.';
+        //     skip = 1;
+        // }
+        else if(input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 0) {
+            //add gap error correct (dont add a dot or dash)
+            DMESGF("add gap 1 ec");
+        }
+        else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
+            //add gap error correct (dont add a dot or dash)
+            DMESGF("add gap 2 ec");
+        }
+        //links with below
+        else if(oneBefore == 1 && input[0] == 1 && input[1] == 0 && input[2] == 1 && input[3] == 1) {
+            //add dash error correct
+            DMESGF("add dash 4 ec!");
+            letter[letterPos++] = '-';
+            skip = 3;
+        }
+        //could happen if a previous 1101101 - > 11(1)1101 has happened
+        else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[3] == 1) {
+            //add gap error correct (dont add a dot or dash)
+            DMESGF("add gap 3 ec");
+        }
+        else{
+            DMESGF("Operation Not Found");
+            //Print out buffer to see what we missed
+            DMESGF("%d", twoBefore);
+            DMESGF("%d", oneBefore);
+            DMESGF("---");
+            for(int i = 0 ; i < INPUT_BUF_LEN ; i ++){
+                DMESGF("%d", input[i]);
+            }
+            DMESGF("---");
+
+        }
+
 
     }
     else{
+        DMESGF("skip");
         skip--;
     }
 
@@ -304,10 +389,17 @@ void MorseCode::playFrequency(int frequency, int ms) {
     }
 }
 
-void MorseCode::playChar(char c){
+void MorseCode::playChar(char c, bool primary){
+
+    int frequency = 0;
+    if(primary)
+        frequency = frequencyP;
+    else
+        frequency = frequencyS;
 
     DMESGF("play char %c", c);
     DMESGF("frequency %d", frequency);
+
     std::string sequence;
     std::map<char, std::string>::iterator it;
     for(it=lookup.begin(); it!=lookup.end(); ++it){
@@ -322,10 +414,18 @@ void MorseCode::playChar(char c){
             playFrequency(frequency, DOT_LENGTH);
         else if (c == '-')
             playFrequency(frequency, DOT_LENGTH*3);
-        //fap between sections of each note
+        //gap between sections of each note
         fiber_sleep(DOT_LENGTH);
     }
     //wait inter-letter gap (3 x time unit)
     fiber_sleep(DOT_LENGTH*3);
+
+}
+
+void MorseCode::playString(std::string input, bool primary){
+
+    for(char& c : input) {
+        playChar(c, primary);
+    }
 
 }

@@ -27,7 +27,7 @@ DEALINGS IN THE SOFTWARE.
 #include <algorithm>
 #include <unordered_map>
 #include <cstdlib>
-
+#include <map>
 
 MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream(source)
 {
@@ -71,6 +71,9 @@ int MicroBitAudioProcessor::pullRequest()
 
     auto mic_samples = audiostream.pull();
 
+    //DMESGF("Time between PR %d", (int) (system_timer_current_time() - timer));
+    timer = system_timer_current_time();
+
     if (!recording)
         return DEVICE_OK;
 
@@ -83,6 +86,7 @@ int MicroBitAudioProcessor::pullRequest()
 
         if (!(position % CYCLE_SIZE))
         {
+            //auto a = system_timer_current_time();
             //DMESGF("run fft position %d, offset %d ", position, offset);
             if(position >= (FFT_SAMPLES + CYCLE_SIZE) -1 )
                 position= 0;
@@ -132,7 +136,7 @@ int MicroBitAudioProcessor::pullRequest()
             lastFreq = (int) frequencyDetected;
             secondHarmonicFreq = secondHarmonicDetected;
 
-            //Update rolling squre buffer with 0 (so that its reset to 0 if silence and dosnt keep old high peak)
+            //Update rolling square buffer with 0 (so that its reset to 0 if silence and dosnt keep old high peak)
             for(int i = NUM_RUNS_AVERAGE-1 ; i > 0 ; i --){
                 highestBinBuffer[i] = highestBinBuffer[i-1];
             }
@@ -152,22 +156,22 @@ int MicroBitAudioProcessor::pullRequest()
             }
             //DMESGF("%d", closestNote);
             //DMESGF("%d", secondHarmonic);
-            outputBuffer.setByte(0, (uint8_t) closestNote);
-            outputBuffer.setByte(1, (uint8_t) (lastFreq/1000)%10);
-            outputBuffer.setByte(2, (uint8_t) (lastFreq/100)%10);
-            outputBuffer.setByte(3, (uint8_t) (lastFreq/10) %10);
-            outputBuffer.setByte(4, (uint8_t) (lastFreq % 10));
-            outputBuffer.setByte(5, (uint8_t) secondHarmonic);
-            outputBuffer.setByte(6, (uint8_t) (secondHarmonicFreq/1000)%10);
-            outputBuffer.setByte(7, (uint8_t) (secondHarmonicFreq/100)%10);
-            outputBuffer.setByte(8, (uint8_t) (secondHarmonicFreq/10)%10);
-            outputBuffer.setByte(9, (uint8_t) (secondHarmonicFreq%10));
-            downstream->pullRequest();
+            if(downstream != NULL){
+                outputBuffer.setByte(0, (uint8_t) closestNote);
+                outputBuffer.setByte(1, (uint8_t) (lastFreq/1000)%10);
+                outputBuffer.setByte(2, (uint8_t) (lastFreq/100)%10);
+                outputBuffer.setByte(3, (uint8_t) (lastFreq/10) %10);
+                outputBuffer.setByte(4, (uint8_t) (lastFreq % 10));
+                outputBuffer.setByte(5, (uint8_t) secondHarmonic);
+                outputBuffer.setByte(6, (uint8_t) (secondHarmonicFreq/1000)%10);
+                outputBuffer.setByte(7, (uint8_t) (secondHarmonicFreq/100)%10);
+                outputBuffer.setByte(8, (uint8_t) (secondHarmonicFreq/10)%10);
+                outputBuffer.setByte(9, (uint8_t) (secondHarmonicFreq%10));
+                downstream->pullRequest();
+            }
+            //DMESGF("Time taken to do FFT %d", (int) (system_timer_current_time() - a));
         }
-
-
     }
-
     return DEVICE_OK;
 }
 
@@ -182,53 +186,43 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
     }
 
     //Order peaks
-    std::sort(cpy, cpy+(int)FFT_SAMPLES/2);
+    //std::sort(cpy, cpy+(int)FFT_SAMPLES/2);
 
     //Get highest ones and their index - dont take if value is within <leeway> bins either side of an already stored point
     int i = 0; //position in peaks array
-    int p = 0; //position in cpy buffer of magnitudes
     bool pass = true;
-    
     int leeway = 6;
 
-    //loop until we have <NUM_PEAKS> data points
-    // Should be enough to find the first 5 pairs giving 5 extra leeway for spurious results
-    while( i < NUM_PEAKS && p < (FFT_SAMPLES/2)-1){
-        int target = (int) cpy[(FFT_SAMPLES/2) - (p+1)];
+    //try and use arm max insted? (Dont sort) - just as slow :(
+    while(i < NUM_PEAKS){
+        arm_max_f32(cpy , FFT_SAMPLES / 2, &maxValue, &resultIndex);       
         pass = true;
-        for(int j = 0 ; j < (int) FFT_SAMPLES/2 ; j++){
-            //get index of peak (j)
-            if((int) target == (int) magOut[j]){
-                //pre-load first one
-
-                if(i == 0){
-                    peaks[i].value = (int) target;
-                    peaks[i].index = j;
-                    i++;
-                    p++;
+        if(i < 1){
+            peaks[i].value = (int) maxValue;
+            peaks[i].index = resultIndex;
+            i++;
+            //p++;
+        }
+        else{
+            for(int k = 0 ; k < i ; k ++){
+                if((int) peaks[k].index < (int) resultIndex+leeway && (int) peaks[k].index > (int) resultIndex-leeway){
+                    pass = false;
                 }
-                // check we dont already have this peak
-                else{
-                    for(int k = 0 ; k < i ; k ++){
-                        if((int) peaks[k].index < j+leeway && (int) peaks[k].index > j-leeway){
-                            pass = false;
-                        }
-                    }
-                    if(pass && i < NUM_PEAKS){
-                        peaks[i].value = (int8_t) target;
-                        peaks[i].index = j;
-                        i++;
-                    }
-                    p++;
-                } 
+            }
+            if(pass){
+                peaks[i].value = (int) maxValue;
+                peaks[i].index = resultIndex;
+                i++;
+                //p++;
             }
         }
+        cpy[resultIndex] = 0;
     }
-
-    //order by index
-    std::sort(peaks, peaks+NUM_PEAKS, sortFunction);
-
     
+    //order by index (dont need?)
+    //std::sort(peaks, peaks+NUM_PEAKS, sortFunction);
+
+
     std::unordered_map<int, int> hash3;
     //int distances[NUM_PEAKS*NUM_PEAKS];
     distancesPointer = 0;
@@ -247,26 +241,21 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         }
     }
 
-    //pick out most common or 'harmonic distance'
+    //pick out most common (primary and secondary) or 'harmonic distance'
     //common base should be most common gap
     int count = 0;
     int result = -1;
+    int secondCount = 0;
+    int secondHarmonicResult = -1;
 
     for(auto i : hash3){
         if(count < i.second){
             result = i.first;
             count = i.second;
         }
-    }
-
-    //get Second harmonic
-    int secondGap = 0;
-    int secondHarmonicResult = -1;
-
-    for(auto i : hash3){
-        if(secondGap < i.second && i.first != result){
+        else if(secondCount < i.second && i.first != result){
             secondHarmonicResult = i.first;
-            secondGap = i.second;
+            secondCount = i.second;
         }
     }
 
@@ -319,6 +308,7 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
 
         }
     }
+
     //DMESG("Average frequency  %d", (int) lastFreq);
     //DMESG("2nd Harmonic Freq  %d", (int) secondHarmonicResult);
     //clean up

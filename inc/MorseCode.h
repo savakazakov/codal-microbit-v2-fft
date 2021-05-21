@@ -73,8 +73,14 @@ class MorseCode : public DataSink
     int                     wordPosS = 0;
     int                     skipP = 0;
     int                     skipS = 0;
-    int                     frequency;
+    int                     frequencyP;
+    int                     frequencyS;
     int                     avgThresh;
+    int                     samples = 0;
+    int                     oneBeforeP = 0;
+    int                     oneBeforeS = 0;
+    int                     twoBeforeP = 0;
+    int                     twoBeforeS = 0;
 
     public:
         //TODO default to no note (NULL) - so that any sound can be used (by checking like we do at the start of the constructor)
@@ -85,10 +91,11 @@ class MorseCode : public DataSink
     int supportedCheck();
     void startRecognise();
     void stopRecognise();
-    void doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos);
+    void doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos, int oneBeforeValue, int twoBeforeValue);
     char lookupLetter(char letterParts[LETTER_LEN]);
     void playFrequency(int frequency, int ms);
-    void playChar(char c);
+    void playChar(char c, bool primary);
+    void playString(std::string c, bool primary);
 };
 
 
