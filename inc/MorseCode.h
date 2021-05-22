@@ -18,6 +18,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
+
 #include "MicroBit.h"
 #include "MicroBitAudioProcessor.h"
 #include "DataStream.h"
@@ -31,6 +32,7 @@ DEALINGS IN THE SOFTWARE.
 #define INPUT_BUF_LEN 7 // max is 7 spaces for a word gap
 #define LETTER_LEN 5
 #define WORD_LEN 20
+#define NUM_SAMPLES 44
 
 // class MicroBitAudioProcessor;
 
@@ -77,6 +79,10 @@ class MorseCode : public DataSink
     int                     oneBeforeS = 0;
     int                     twoBeforeP = 0;
     int                     twoBeforeS = 0;
+    int                     firstHalfP = 0;
+    int                     secondHalfP = 0;
+    int                     firstHalfS = 0;
+    int                     secondHalfS = 0;
 
     public:
         //TODO default to no note (NULL) - so that any sound can be used (by checking like we do at the start of the constructor)
