@@ -18,12 +18,16 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "CodalConfig.h"
 #include "MicroBit.h"
 #include "MicroBitAudioProcessor.h"
+#include "Event.h"
 #include <algorithm>
 #include <unordered_map>
 #include <cstdlib>
 #include <map>
+
+std::map<char, int> eventCode = {{'C', 1}, {'D', 2}, {'E', 3}, {'F', 4}, {'G', 5}, {'A', 6}, {'B', 7}};
 
 MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream(source)
 {
@@ -148,6 +152,10 @@ int MicroBitAudioProcessor::pullRequest()
                 closestNote = frequencyToNote(getClosestNoteSquare());
                 secondHarmonic = frequencyToNote(secondHarmonicDetected);
             }
+
+            //Send detected events
+            sendEvent(closestNote);
+            sendEvent(secondHarmonic);
             //DMESGF("%d", closestNote);
             //DMESGF("%d", secondHarmonic);
             if(downstream != NULL){
@@ -167,6 +175,17 @@ int MicroBitAudioProcessor::pullRequest()
         }
     }
     return DEVICE_OK;
+}
+
+void MicroBitAudioProcessor::sendEvent(char letter){
+    std::map<char, int>::iterator it;
+    for(it=eventCode.begin(); it!=eventCode.end(); ++it){
+      if(it->first == letter){
+        Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second );
+        return;
+      }
+    }
+
 }
 
 bool sortFunction(PeakDataPoint a, PeakDataPoint b){return (a.index < b.index);}

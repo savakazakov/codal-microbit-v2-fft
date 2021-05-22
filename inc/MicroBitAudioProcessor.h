@@ -22,6 +22,7 @@ DEALINGS IN THE SOFTWARE.
 #include "DataStream.h"
 #define ARM_MATH_CM4
 #include "arm_math.h"
+#include <map>
 
 #ifndef MICROBIT_AUDIO_PROCESSOR_H
 #define MICROBIT_AUDIO_PROCESSOR_H
@@ -33,6 +34,13 @@ DEALINGS IN THE SOFTWARE.
 #define NUM_RUNS_AVERAGE    2 //too big means the notes wont change over to the new one as quickly
 #define AVERAGE_THRESH      NUM_RUNS_AVERAGE/2
 
+#define DETECTED_C  1
+#define DETECTED_D  2
+#define DETECTED_E  3
+#define DETECTED_F  4
+#define DETECTED_G  5
+#define DETECTED_A  6
+#define DETECTED_B  7
 
 class MicroBitAudioProcessor;
 
@@ -106,6 +114,7 @@ private:
     int setDivisor(int d);
     void startRecording();
     void stopRecording(MicroBit& uBit);
+    void sendEvent(char letter);
     /**
      *  Determine the data format of the buffers streamed out of this component.
      */
