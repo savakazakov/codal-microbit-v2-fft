@@ -35,6 +35,8 @@ DEALINGS IN THE SOFTWARE.
 #include "LevelDetector.h"
 #include "LevelDetectorSPL.h"
 #include "MicRecorder.h"
+#include "MicroBitAudioProcessor.h"
+#include "MorseCode.h"
 
 namespace codal
 {
@@ -51,7 +53,10 @@ namespace codal
         LevelDetector           *level;         // Level Detector instance
         LevelDetectorSPL        *levelSPL;      // Level Detector SPL instance
         MicRecorder             *recorder;      // Mic Recorder instance
-        NRF52ADCChannel         *mic;                   // Microphone ADC Channel from uBit.IO
+        MicroBitAudioProcessor  *fft;           // Audio PRocessor instance (fft)
+        MorseCode               *morse;         // Morse code instance
+        MorseCode               *voiceMorse;     // Vocie morse code instance
+        NRF52ADCChannel         *mic;           // Microphone ADC Channel from uBit.IO
 
         private:
         bool speakerEnabled;                    // State of on board speaker

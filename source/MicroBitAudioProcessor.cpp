@@ -29,19 +29,20 @@ DEALINGS IN THE SOFTWARE.
 
 std::map<char, int> eventCode = {{'C', 1}, {'D', 2}, {'E', 3}, {'F', 4}, {'G', 5}, {'A', 6}, {'B', 7}};
 
-MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream(source)
+MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, bool connectImmediately) : audiostream(source)
 {
 
     this->ifftFlag = 0;
     this->bitReverse = 1;
     this->lastLastFreq = -1;
+    this->activated = false;
 
     divisor = 1;
     lastFreq = 0;
     //Init CFFT module
     arm_rfft_fast_init_f32(&fft_instance, FFT_SAMPLES);
 
-    ManagedBuffer outputBuffer(outBuf, 10);
+    ManagedBuffer outputBuffer(outBuf, 11);
     this->outputBuffer = outputBuffer;  
 
     this->position = FFT_SAMPLES; //first one in to the cycle size overflow buffer (so wrap arround works correctly)
@@ -49,7 +50,11 @@ MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source) : audiostream
     recording = false;
 
     DMESG("%s %p", "Audio Processor connecting to upstream, Pointer to me : ", this);
-    audiostream.connect(*this);
+    if(connectImmediately){
+        audiostream.connect(*this);
+        activated = true;
+    }
+    
 }
 
 MicroBitAudioProcessor::~MicroBitAudioProcessor()
@@ -59,6 +64,9 @@ MicroBitAudioProcessor::~MicroBitAudioProcessor()
 }
 
 ManagedBuffer MicroBitAudioProcessor::pull(){
+    if(!recording){
+        this->recording = true;
+    }
     return outputBuffer;
 }
 
@@ -68,7 +76,6 @@ void MicroBitAudioProcessor::connect(DataSink &downstream){
 
 int MicroBitAudioProcessor::pullRequest()
 {
-
     auto mic_samples = audiostream.pull();
 
     //DMESGF("Time between PR %d", (int) (system_timer_current_time() - timer));
@@ -76,6 +83,8 @@ int MicroBitAudioProcessor::pullRequest()
 
     if (!recording)
         return DEVICE_OK;
+
+
 
     int8_t *data = (int8_t *) &mic_samples[0];
 
@@ -130,9 +139,9 @@ int MicroBitAudioProcessor::pullRequest()
             arm_max_f32(magOut, FFT_SAMPLES/2, &maxValue, &secondHarmonicIndex);
 
             float frequencyDetected = binResolution * ((float) resultIndex + (float) parabolicOffset);
-            float secondHarmonicDetected = binResolution * ((float) secondHarmonicIndex);
+            secondHarmonicFreq = binResolution * ((float) secondHarmonicIndex);
             lastFreq = (int) frequencyDetected;
-            secondHarmonicFreq = secondHarmonicDetected;
+            secondHarmonicFreq = secondHarmonicFreq;
 
             //Update rolling square buffer with 0 (so that its reset to 0 if silence and dosnt keep old high peak)
             for(int i = NUM_RUNS_AVERAGE-1 ; i > 0 ; i --){
@@ -145,19 +154,25 @@ int MicroBitAudioProcessor::pullRequest()
                 //DMESGF("1st Freq %d", (int) lastFreq);
                 //DMESGF("2nd Freq %d", (int) secondHarmonicFreq);
                 closestNote = frequencyToNote(lastFreq);
-                secondHarmonic = frequencyToNote(secondHarmonicDetected);
+                secondHarmonic = frequencyToNote(secondHarmonicFreq);
             }
             else{
                 //square wave - probbaly from microbit
                 closestNote = frequencyToNote(getClosestNoteSquare());
-                secondHarmonic = frequencyToNote(secondHarmonicDetected);
+                secondHarmonic = frequencyToNote(secondHarmonicFreq);
             }
 
             //Send detected events
             sendEvent(closestNote);
             sendEvent(secondHarmonic);
-            //DMESGF("%d", closestNote);
-            //DMESGF("%d", secondHarmonic);
+            //DMESGF("%d", lastFreq);
+            //DMESGF("%d", secondHarmonicFreq);
+
+            uint8_t notIdle = 0;
+            //IDLE Freq is ~42 so use 60 to have leeway (spoken frequencies are around 150+)
+            if(lastFreq > 60){
+                notIdle = 1;
+            }
             if(downstream != NULL){
                 outputBuffer.setByte(0, (uint8_t) closestNote);
                 outputBuffer.setByte(1, (uint8_t) (lastFreq/1000)%10);
@@ -169,6 +184,7 @@ int MicroBitAudioProcessor::pullRequest()
                 outputBuffer.setByte(7, (uint8_t) (secondHarmonicFreq/100)%10);
                 outputBuffer.setByte(8, (uint8_t) (secondHarmonicFreq/10)%10);
                 outputBuffer.setByte(9, (uint8_t) (secondHarmonicFreq%10));
+                outputBuffer.setByte(10,(uint8_t) notIdle);
                 downstream->pullRequest();
             }
             //DMESGF("Time taken to do FFT %d", (int) (system_timer_current_time() - a));
@@ -185,7 +201,6 @@ void MicroBitAudioProcessor::sendEvent(char letter){
         return;
       }
     }
-
 }
 
 bool sortFunction(PeakDataPoint a, PeakDataPoint b){return (a.index < b.index);}
@@ -266,11 +281,12 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
             result = i.first;
             count = i.second;
         }
-        else if(secondCount < i.second && i.first != result){
+        if(secondCount < i.second && i.first != result){
             secondHarmonicResult = i.first;
             secondCount = i.second;
         }
     }
+    secondHarmonicFreq = binResolution * secondHarmonicResult;
 
     float freqDetected = binResolution * (result);
 
@@ -284,7 +300,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         highestBins[highestBinBuffer[binPointer++]]++;
     }
 
-    secondHarmonicFreq = binResolution * secondHarmonicResult;
 
     //Average over a few runs to improve accuracy
     if(NUM_RUNS_AVERAGE > 2){
@@ -333,10 +348,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
 
 }
 
-char MicroBitAudioProcessor::getClosestNote(){
-    return closestNote;
-}
-
 char MicroBitAudioProcessor::frequencyToNote(int frequency){
     if(250<frequency && frequency <277){
         return 'C'; //C4
@@ -363,7 +374,31 @@ char MicroBitAudioProcessor::frequencyToNote(int frequency){
 }
 
 int MicroBitAudioProcessor::getFrequency(){
+    if(!recording){
+        startRecording();
+    }
     return lastFreq;
+}
+
+char MicroBitAudioProcessor::getClosestNote(){
+    if(!recording){
+        startRecording();;
+    }
+    return closestNote;
+}
+
+int MicroBitAudioProcessor::getSecondaryFrequency(){
+    if(!recording){
+        startRecording();
+    }
+    return secondHarmonicFreq;
+}
+
+char MicroBitAudioProcessor::getSecondaryNote(){
+    if(!recording){
+        startRecording();
+    }
+    return secondHarmonic;
 }
 
 
@@ -376,11 +411,15 @@ int MicroBitAudioProcessor::setDivisor(int d)
 
 void MicroBitAudioProcessor::startRecording()
 {
+    if(!activated){
+        audiostream.connect(*this);
+        activated = true;
+    }
     this->recording = true;
     DMESG("START RECORDING");
 }
 
-void MicroBitAudioProcessor::stopRecording(MicroBit& uBit)
+void MicroBitAudioProcessor::stopRecording()
 {
     this->recording = false;
     DMESG("STOP RECORDING");

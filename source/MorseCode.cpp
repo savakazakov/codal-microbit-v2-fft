@@ -37,44 +37,82 @@ std::map<char, std::string> lookup = {
     {'Y', "-.--0"}, {'Z', "--..0"}, {'1', ".----"}, {'2', "..---"}, {'3', "...--"}, {'4', "....-"}, {'5', "....."}, {'6', "-...."},
     {'7', "--..."}, {'8', "---.."}, {'9', "----."}, {'0', "-----"}, {'&', ".-..."}};
 
-MorseCode::MorseCode(DataSource& source, char primaryNote, char secondaryNote, Pin &p) :audiostream(source)
+//Init for voice activation - anything above idle will be registered as a primary sound, allows humans to beep their own morse
+MorseCode::MorseCode(MicroBitAudioProcessor& source, Pin &p, bool connectImmediately) :audiostream(source)
 {
     DMESGF("hello morse detector");
-    //if(note != NULL){
-        //std::find returns the last item in the array if its not found
-    this->primaryNote = primaryNote;
-    this->secondaryNote = secondaryNote;
-    //TOOD set based off fft cycle size (128 - 15-18, 256 - 10, 512 - 5)
-    this->avgThresh = 18;
+
+    this->primaryNote = '0';
+    this->secondaryNote = '0';
+    this->secondary = false;
+    this->avgThresh = 20; //18
     pin = &p;
-    //}
-    // if(processor == NULL){
-    //     //TODO use ubit splitter
-    //     this->processor = (MicroBitAudioProcessor *) new MicroBitAudioProcessor(*audio.splitter);
-    // }
-    supportedCheck();
 
     this->recognise = false;
+    this->activated = false;
+    this->voiceMode = true;
 
     //setup Buffers
-    for(int i = 0 ; i < 5 ; i++){
+    for(int i = 0 ; i < LETTER_LEN ; i++){
         primaryLetter[i] = '0';
         secondaryLetter[i] = '0';
     }
 
-    for(int i = 0 ; i < 20 ; i++){
+    for(int i = 0 ; i < WORD_LEN ; i++){
         primaryWord[i] = '0';
         secondaryWord[i] = '0';
     }
 
-    DMESG("%s %p On Note %c", "Morse Code connecting to upstream processor, Pointer to me : ", this, primaryNote);
-    audiostream.connect(*this);
+    if(connectImmediately){
+        DMESGF("connecting Immediately");
+        audiostream.connect(*this);
+        this->activated = true;
+        if(!audiostream.activated){
+            audiostream.startRecording();
+        }
+    }
+}
+
+//standard init, allows the listening for 2 notes at a time, primary and secondary
+MorseCode::MorseCode(MicroBitAudioProcessor& source, char primaryNote, char secondaryNote, Pin &p, bool connectImmediately) :audiostream(source)
+{
+
+    this->primaryNote = primaryNote;
+    this->secondaryNote = secondaryNote;
+    this->secondary = true;
+    //TOOD set based off fft cycle size (128 - 15-18, 256 - 10, 512 - 5)
+    this->avgThresh = 20; //18
+    pin = &p;
+
+    supportedCheck();
+
+    this->recognise = false;
+    this->activated = false;
+
+    //setup Buffers
+    for(int i = 0 ; i < LETTER_LEN ; i++){
+        primaryLetter[i] = '0';
+        secondaryLetter[i] = '0';
+    }
+
+    for(int i = 0 ; i < WORD_LEN ; i++){
+        primaryWord[i] = '0';
+        secondaryWord[i] = '0';
+    }
+
+    if(connectImmediately){
+        DMESGF("connecting Immediately");
+        audiostream.connect(*this);
+        this->activated = true;
+        if(!audiostream.activated){
+            audiostream.startRecording();
+        }
+    }
 }
 
 MorseCode::~MorseCode()
 {
-    //default to any frequency but assign if there is one set
-
+    //destructor - free variables
 }
 
 int MorseCode::supportedCheck(){
@@ -107,20 +145,13 @@ int MorseCode::pullRequest()
     //pull from audio processor that is set up as a data source
     ManagedBuffer noteData = audiostream.pull();
     //DMESGF("length %d", noteData.length());
-    
+
     if(!recognise)
         return DEVICE_OK;
 
     int8_t *data = (int8_t *) &noteData[0];
     samples++;
     if(system_timer_current_time() > timePeriod+DOT_LENGTH){
-        //shuffle buffer
-        // for(int i = 0 ; i < INPUT_BUF_LEN-2 ; i++){
-        //     bufP[i] = (int) bufP[i+1];
-        //     DMESGF("%d", (int) bufP[i]);
-        //     bufS[i] = (int) bufS[i+1];
-        //     DMESGF("%d", (int) bufS[i]);
-        // }
 
         //shuffle buff
         twoBeforeP = oneBeforeP;
@@ -132,16 +163,16 @@ int MorseCode::pullRequest()
             bufS[i] = bufS[i+1];
         }
 
-        //DMESGF("correct %d", correctCounterP);
+        DMESGF("correct %d", correctCounterP);
         //DMESGF("correct %d", correctCounterS);
 
         //check for primary note
         if(correctCounterP > avgThresh){
-            //DMESGF("Add: 1");
+            DMESGF("Add: 1");
             bufP[INPUT_BUF_LEN-1] = 1;
         }
         else{
-            //DMESGF("Add: 0");
+            DMESGF("Add: 0");
             bufP[INPUT_BUF_LEN-1] = 0;
         }
 
@@ -157,33 +188,37 @@ int MorseCode::pullRequest()
 
         //auto a = system_timer_current_time();
         doRecognise(bufP, primaryLetter, primaryWord, skipP, letterPosP, wordPosP, oneBeforeP, twoBeforeP);
-        doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
+        if(secondary)
+            doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
         //DMESGF("time taken %d", (int) (system_timer_current_time() - a));
-        //DMESGF("samples : %d", samples);
+        DMESGF("samples : %d", samples);
 
         // -- Timing Correction -- if we arnt getting many samples, then run slightly quicker next time to try and mesh
         // multiply so that bigger differences are changed more than small ones
 
-        // was correct but too small
-        if(correctCounterS < 23 && correctCounterS > avgThresh){
-            if(firstHalfS > secondHalfS){
-                //DMESGF("correcting + ");
-                timePeriod = system_timer_current_time()+(correctCounterS*6);
+        // was correct but too small (only correct for primary or else primary and secondary will clash with correction?)
+        topHeavyP = false;
+        if(correctCounterP < 30 && correctCounterP > avgThresh){
+            if(firstHalfP > secondHalfP){
+                topHeavyP = true;
+                DMESGF("correcting + ");
+                timePeriod = system_timer_current_time()+((NUM_SAMPLES - correctCounterP)*6);
             }
             else{
-                //DMESGF("correcting - ");
-                timePeriod = system_timer_current_time()-(correctCounterS*6);
+                DMESGF("correcting - ");
+                timePeriod = system_timer_current_time()-((NUM_SAMPLES - correctCounterP)*6);
             }
         }
         //was incorrect but too big
-        else if (correctCounterS < avgThresh && correctCounterS > 12){
-            if(firstHalfS > secondHalfS){
-                //DMESGF("correcting + ");
-                timePeriod = system_timer_current_time()+(correctCounterS*6);
+        else if (correctCounterP <= avgThresh && correctCounterP > 12){
+            if(firstHalfP > secondHalfP){
+                topHeavyP = true;
+                DMESGF("correcting + ");
+                timePeriod = system_timer_current_time()+(correctCounterP*6);
             }
             else{
-                //DMESGF("correcting - ");
-                timePeriod = system_timer_current_time()-(correctCounterS*6);
+                DMESGF("correcting - ");
+                timePeriod = system_timer_current_time()-(correctCounterP*6);
             }
 
         }
@@ -197,13 +232,11 @@ int MorseCode::pullRequest()
         firstHalfS = 0;
         secondHalfS = 0;
         samples = 0;
-        //DMESGF("----------");
-        
-    
+        DMESGF("----------");
     }
 
-    for(int i = 0 ; i < noteData.length() ; i++){
-        if(!(i%5)){
+    for(int i = 0 ; i < noteData.length()-1 ; i++){
+        if(!(i%5) && i < 10){
             //DMESGF("%c", (char) *data++);
             if((char)*data == (char) primaryNote){
                 correctCounterP++;
@@ -228,15 +261,33 @@ int MorseCode::pullRequest()
         data++;
     }
 
-
-
+    if(voiceMode){
+        //if not idle
+        if((int8_t)*data == 1){
+            correctCounterP++;
+            if(samples < NUM_SAMPLES/2){
+                firstHalfP++;
+            }
+            else{
+                secondHalfP++;
+            }
+        }
+    }
    
     return DEVICE_OK;
 
 }
 
 void MorseCode::startRecognise(){
-
+    DMESGF("start recognise");
+    if(!activated){
+        DMESGF("wasnt activated");
+        audiostream.connect(*this);
+        activated = true;
+        if(!audiostream.activated){
+            audiostream.startRecording();
+        }
+    }
     this->recognise = true;
     //doRecognise();
 }
@@ -314,21 +365,21 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             }
 
         }
-        else if(oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
+        else if(oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 1 && input[3] == 0 && topHeavyP) {
             //add dash error correct
-            //DMESGF("add dash 1 ec!");
+            DMESGF("add dash 1 ec!");
             letter[letterPos++] = '-';
             skip = 3;
         }
-        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[2] == 0) {
+        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[3] == 0) {
             //add dash error correct
-            //DMESGF("add dash 2 ec!");
+            DMESGF("add dash 2 ec!");
             letter[letterPos++] = '-';
             skip = 3;
         }
         else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 1) {
             //add dash error correct
-            //DMESGF("add dash 3 ec!");
+            DMESGF("add dash 3 ec!");
             letter[letterPos++] = '-';
             skip = 3;
         }
@@ -339,22 +390,28 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
         //     skip = 2;
         // }
         else if(twoBefore == 1 && oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 1 && !letterEmpty){
-                        //add dot error correct
-            //DMESGF("add dot 1 ec!");
+            //add dot error correct
+            DMESGF("add dot 1 ec!");
             letter[letterPos++] = '.';
-            skip = 2;
+            skip = 1;
+        }
+        else if(twoBefore == 1 && oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 0 && !letterEmpty){
+            //add dot error correct
+            DMESGF("add dot 2 ec!");
+            letter[letterPos++] = '.';
+            skip = 1;
         }
         else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 1 ) {
             //add dot error correct
-            //DMESGF("add dot 2 ec!");
+            DMESGF("add dot 3 ec!");
             letter[letterPos++] = '.';
             skip = 1;
         }
-        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[3] == 1 ) {
+        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[3] == 1 && !topHeavyP) {
             //add dot error correct
-            //DMESGF("add dot 3 ec!");
+            DMESGF("add dot 4 ec!");
             letter[letterPos++] = '.';
-            skip = 1;
+            skip = 2;
         }
         //needs re-work as catches the end of letter (3 x 0's)
         // else if(oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 1 && !letterEmpty) {
@@ -365,23 +422,23 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
         // }
         else if(input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 0) {
             //add gap error correct (dont add a dot or dash)
-            //DMESGF("add gap 1 ec");
+            DMESGF("add gap 1 ec");
         }
         else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
             //add gap error correct (dont add a dot or dash)
-            //DMESGF("add gap 2 ec");
+            DMESGF("add gap 2 ec");
         }
         //links with below
         else if(oneBefore == 1 && input[0] == 1 && input[1] == 0 && input[2] == 1 && input[3] == 1) {
             //add dash error correct
-            //DMESGF("add dash 4 ec!");
+            DMESGF("add dash 4 ec!");
             letter[letterPos++] = '-';
             skip = 3;
         }
         //could happen if a previous 1101101 - > 11(1)1101 has happened
         else if(oneBefore == 1 && input[0] == 1 && input[1] == 1 && input[2] == 0 && input[3] == 1) {
             //add gap error correct (dont add a dot or dash)
-            //DMESGF("add gap 3 ec");
+            DMESGF("add gap 3 ec");
         }
         else{
             //DMESGF("Operation Not Found");
@@ -489,6 +546,10 @@ void MorseCode::playString(std::string input, bool primary){
 }
 
 std::string MorseCode::getStored(bool primary){
+    if(!activated){
+        startRecognise();
+    }
+
     std::string ret;
     if(primary){
         for(int i = 0 ; i < WORD_LEN ; i++)
@@ -503,6 +564,10 @@ std::string MorseCode::getStored(bool primary){
 }
 
 void MorseCode::serialPrintStored(bool primary){
+    if(!activated){
+        startRecognise();
+    }
+
     if(primary){
         for(int i = 0 ; i < WORD_LEN ; i++)
             DMESGF("%c", (char) primaryWord[i]);
@@ -514,6 +579,10 @@ void MorseCode::serialPrintStored(bool primary){
 }
 
 char MorseCode::getLastChar(bool primary){
+    if(!activated){
+        startRecognise();
+    }
+
     if(primary){
         return primaryWord[wordPosP-1];
     }
@@ -523,6 +592,9 @@ char MorseCode::getLastChar(bool primary){
 }
 
 void MorseCode::clearStored(bool primary, int& wordPos){
+    if(!activated){
+        startRecognise();
+    }
 
     if(primary){
         wordPos = 0;

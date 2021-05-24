@@ -18,8 +18,6 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
-
-#include "MicroBit.h"
 #include "MicroBitAudioProcessor.h"
 #include "DataStream.h"
 #include <list>
@@ -28,11 +26,11 @@ DEALINGS IN THE SOFTWARE.
 #ifndef MORSE_CODE_H
 #define MORSE_CODE_H
 
-#define DOT_LENGTH 500 //milliseconds
+#define DOT_LENGTH 250 //milliseconds
 #define INPUT_BUF_LEN 7 // max is 7 spaces for a word gap
 #define LETTER_LEN 5
 #define WORD_LEN 20
-#define NUM_SAMPLES 44
+#define NUM_SAMPLES 22
 
 // class MicroBitAudioProcessor;
 
@@ -52,7 +50,7 @@ DEALINGS IN THE SOFTWARE.
 
 class MorseCode : public DataSink
 {
-    DataSource              &audiostream;
+    MicroBitAudioProcessor  &audiostream;
     char                    primaryNote;
     char                    secondaryNote;
     std::map<char, int>     supportedNotes = {{'C', 261},{'D', 293},{'E', 329},{'F', 349},{'G', 391},{'A', 440},{'B', 493}};
@@ -71,8 +69,8 @@ class MorseCode : public DataSink
     int                     wordPosS = 0;
     int                     skipP = 0;
     int                     skipS = 0;
-    int                     frequencyP;
-    int                     frequencyS;
+    int                     frequencyP = 440;
+    int                     frequencyS = 329;
     int                     avgThresh;
     int                     samples = 0;
     int                     oneBeforeP = 0;
@@ -83,11 +81,16 @@ class MorseCode : public DataSink
     int                     secondHalfP = 0;
     int                     firstHalfS = 0;
     int                     secondHalfS = 0;
+    bool                    secondary;
+    bool                    voiceMode = false;
+    bool                    activated = false;
+    bool                    topHeavyP;
 
     public:
-        //TODO default to no note (NULL) - so that any sound can be used (by checking like we do at the start of the constructor)
-        //i.e. if (X) then use any sound
-    MorseCode(DataSource& source, char primaryNote, char secondaryNote, Pin &p); 
+    //Init for voice activation - anything above idle will be registered as a primary sound, allows humans to beep their own morse
+    MorseCode(MicroBitAudioProcessor& source, Pin &p, bool connectImmediately = true);
+    //standard init, allows the listening for 2 notes at a time, primary and secondary
+    MorseCode(MicroBitAudioProcessor& source, char primaryNote, char secondaryNote, Pin &p, bool connectImmediately = true); 
     ~MorseCode(); 
     virtual int pullRequest();
     int supportedCheck();

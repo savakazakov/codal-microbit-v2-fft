@@ -32,6 +32,8 @@ DEALINGS IN THE SOFTWARE.
 #include "SoundEmojiSynthesizer.h"
 #include "StreamSplitter.h"
 #include "MicRecorder.h"
+#include "MicroBitAudioProcessor.h"
+#include "MorseCode.h"
 
 using namespace codal;
 
@@ -67,7 +69,7 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
 
     //Initilise stream normalizer 8 bit signed
     if (processor == NULL)
-        processor = new StreamNormalizer(mic->output, 1.0f, true, DATASTREAM_FORMAT_UNKNOWN, 10);
+        processor = new StreamNormalizer(mic->output,  0.2f, true, DATASTREAM_FORMAT_8BIT_SIGNED, 10);
 
     //Initilise stream splitter (could merge into line above but left seperate for clarity)
     if (splitter == NULL)
@@ -84,6 +86,18 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     //Initilise Mic Recorder
     if (recorder == NULL)
         recorder = new MicRecorder(*splitter, mixer, false);
+
+    //Initilise fft
+    if (fft == NULL)
+        fft = new MicroBitAudioProcessor(*splitter, false);
+
+    //Initilise Morse Detector
+    if (morse == NULL)
+        morse = new MorseCode(*fft,'A', 'B', virtualOutputPin, false);
+
+    //Initilise Voice Morse Detector
+    if (voiceMorse == NULL)
+        voiceMorse = new MorseCode(*fft, virtualOutputPin, false);
 
     // Register listener for splitter events
     if(EventModel::defaultEventBus){

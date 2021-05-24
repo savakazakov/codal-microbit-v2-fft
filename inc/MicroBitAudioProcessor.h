@@ -18,7 +18,6 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
-#include "MicroBit.h"
 #include "DataStream.h"
 #define ARM_MATH_CM4
 #include "arm_math.h"
@@ -29,9 +28,9 @@ DEALINGS IN THE SOFTWARE.
 
 #define MIC_SAMPLE_RATE     (11 * 1024)
 #define FFT_SAMPLES         2048
-#define NUM_PEAKS           10
+#define NUM_PEAKS           12
 #define CYCLE_SIZE          128
-#define NUM_RUNS_AVERAGE    2 //too big means the notes wont change over to the new one as quickly
+#define NUM_RUNS_AVERAGE    3 //too big means the notes wont change over to the new one as quickly
 #define AVERAGE_THRESH      NUM_RUNS_AVERAGE/2
 
 #define DETECTED_C  1
@@ -63,9 +62,10 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
 
 public:
         bool recording;
+        bool activated;
 private:
     DataSource      &audiostream;   
-    DataSink        *downstream;        
+    DataSink        *downstream = NULL;        
     int             zeroOffset;             // unsigned value that is the best effort guess of the zero point of the data source
     int             divisor;                // Used for LINEAR modes
     arm_rfft_fast_instance_f32 fft_instance;
@@ -96,24 +96,27 @@ private:
     int timer = 0;
     int timer2 = 0;
 
+
     PeakDataPoint peaks[NUM_PEAKS];
     //stored (char cast as int)Note..(int)Freq digit 1, freq digit 2, digit 3, freq digit 4, (char cast as int)Note ...
-    uint8_t outBuf[10] = {0,0,0,0,0,0,0,0,0,0};
+    uint8_t outBuf[11] = {0,0,0,0,0,0,0,0,0,0,0};
     ManagedBuffer outputBuffer;
 
     public:
-    MicroBitAudioProcessor(DataSource& source); 
+    MicroBitAudioProcessor(DataSource& source, bool connectImmediately = true); 
     ~MicroBitAudioProcessor(); 
     virtual int pullRequest();
     virtual void connect(DataSink &downstream);
     virtual ManagedBuffer pull();
     int getClosestNoteSquare();
     char getClosestNote();
+    int getSecondaryFrequency();
+    char getSecondaryNote();
     int getFrequency();
     char frequencyToNote(int frequency);
     int setDivisor(int d);
     void startRecording();
-    void stopRecording(MicroBit& uBit);
+    void stopRecording();
     void sendEvent(char letter);
     /**
      *  Determine the data format of the buffers streamed out of this component.
