@@ -29,6 +29,11 @@ DEALINGS IN THE SOFTWARE.
 
 #ifndef TAP_RECOGNISER_H
 #define TAP_RECOGNISER_H
+#define TIMING 500
+#define FIRST_SEQUENCE  1
+#define SECOND_SEQUENCE 2
+#define THIRD_SEQUENCE  3
+
 
 #include <string>
 
@@ -43,13 +48,13 @@ namespace codal{
     public:
         bool            activated;                          // Has this component been connected yet.
         bool            recording;                          // Is the component currently recording audio
-        bool            signalRecord;                       // User has requested recording to start
+        bool            requested = false;
         int             position;                           // Pointer to a position in the savedRecordings array
         DataSource      &upstream;                          // The component producing data to process
         Sequence        *savedSequences[NUM_SAVED_SEQUENCES];// Array of mic buffers that make up a recording
         ManagedBuffer   lastBuffer;                         // Last buffer recieved from the mic
-        LevelDetector   &level;                             // Level Detector for reading values
-        int             liveBuffer[SEQUENCE_SIZE];                          
+        int             liveBuffer[SEQUENCE_SIZE];
+        int             correctCounter = 0;                          
 //        Sequence        currentSequence;                    // Current sequence being worked on
 
         /**
@@ -57,9 +62,8 @@ namespace codal{
           *
           * @param source a DataSource to measure the level of.
           * @param connectImmediately Should this component connect to upstream splitter when started
-          * @param level A level detector to read volume level from the mic
           */
-        TapSequenceRecogniser(DataSource &source, LevelDetector &level, bool connectImmediately  = true);
+        TapSequenceRecogniser(DataSource &source,  bool connectImmediately  = true);
 
         /**
          * Callback provided when data is ready.
@@ -69,12 +73,12 @@ namespace codal{
         /*
          * Record a new sequence
          */
-        void recordSequence(std::string name);
+        void recordSequence(char name);
 
         /*
-         * Redo a new sequence
+         * Redo a sequence
          */
-        void redoSequence(std::string name);
+        void redoSequence(int i);
 
         /**
          * Destructor.

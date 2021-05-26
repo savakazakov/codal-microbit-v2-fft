@@ -103,7 +103,7 @@ class MorseCode : public DataSink
     void playString(std::string c, bool primary);
     void serialPrintStored(bool primary);
     char getLastChar(bool primary);
-    void clearStored(bool primary, int& wordPos);
+    void clearStored(bool primary);
     std::string getStored(bool primary);
 };
 #endif

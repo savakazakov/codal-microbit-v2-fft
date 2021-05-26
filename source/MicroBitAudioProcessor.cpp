@@ -27,15 +27,18 @@ DEALINGS IN THE SOFTWARE.
 #include <cstdlib>
 #include <map>
 
+static Pin *pin = NULL;
+static uint8_t pitchVolume = 0xff;
 std::map<char, int> eventCode = {{'C', 1}, {'D', 2}, {'E', 3}, {'F', 4}, {'G', 5}, {'A', 6}, {'B', 7}};
 
-MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, bool connectImmediately) : audiostream(source)
+MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, Pin &p, bool connectImmediately) : audiostream(source)
 {
 
     this->ifftFlag = 0;
     this->bitReverse = 1;
     this->lastLastFreq = -1;
     this->activated = false;
+    pin = &p;
 
     divisor = 1;
     lastFreq = 0;
@@ -197,6 +200,7 @@ void MicroBitAudioProcessor::sendEvent(char letter){
     std::map<char, int>::iterator it;
     for(it=eventCode.begin(); it!=eventCode.end(); ++it){
       if(it->first == letter){
+        DMESGF("detected %d", it->second);
         Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second );
         return;
       }
@@ -373,6 +377,31 @@ char MicroBitAudioProcessor::frequencyToNote(int frequency){
     return 'X';
 }
 
+int MicroBitAudioProcessor::noteToFrequency(char note){
+    if('C'){
+        return 261; //C4
+    }
+    if('D'){
+        return 293; //D4
+    }
+    if('E'){
+        return 329; //E4
+    }
+    if('F'){
+        return 349; //F4
+    }
+    if('G'){
+        return 391; //G4
+    }
+    if('A'){
+        return 440; //A4
+    }
+    if('B'){
+        return 493; //B4
+    }
+    return 0;
+}
+
 int MicroBitAudioProcessor::getFrequency(){
     if(!recording){
         startRecording();
@@ -423,6 +452,32 @@ void MicroBitAudioProcessor::stopRecording()
 {
     this->recording = false;
     DMESG("STOP RECORDING");
+}
+
+// From samples/AudioTest.cpp
+void MicroBitAudioProcessor::playFrequency(int frequency, int ms) {
+    if (frequency <= 0 || pitchVolume == 0) {
+        pin->setAnalogValue(0);
+    } else {
+        // I don't understand the logic of this value.
+        // It is much louder on the real pin.
+        int v = 1 << (pitchVolume >> 5);
+        // If you flip the order of these they crash on the real pin with E030.
+        pin->setAnalogValue(v);
+        pin->setAnalogPeriodUs(1000000/frequency);
+    }
+    if (ms > 0) {
+        fiber_sleep(ms);
+        pin->setAnalogValue(0);
+        fiber_sleep(5);
+    }
+}
+
+// From samples/AudioTest.cpp
+void MicroBitAudioProcessor::playFrequency(char note, int ms) {
+    int frequency = noteToFrequency(note);
+
+    playFrequency(frequency, ms);
 }
 
 

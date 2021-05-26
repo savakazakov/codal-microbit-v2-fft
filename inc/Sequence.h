@@ -31,13 +31,13 @@ DEALINGS IN THE SOFTWARE.
 
 #include <string>
 
-#define SEQUENCE_SIZE                                   20
+#define SEQUENCE_SIZE                                   10
 
 namespace codal{
     class Sequence : public CodalComponent
     {
     public:
-        std::string     name;                           // name for sequence
+        char     name;                           // name for sequence
         int             sequence[SEQUENCE_SIZE];        // Sequence data
         bool            live;                           // Is this sequence live          
 
@@ -48,7 +48,7 @@ namespace codal{
           * @param connectImmediately Should this component connect to upstream splitter when started
           * @param level A level detector to read volume level from the mic
           */
-        Sequence(std::string name);
+        Sequence(char name);
 
         // Default constructor
         Sequence();

@@ -34,6 +34,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MicRecorder.h"
 #include "MicroBitAudioProcessor.h"
 #include "MorseCode.h"
+#include "TapSequenceRecogniser.h"
 
 using namespace codal;
 
@@ -89,15 +90,19 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
 
     //Initilise fft
     if (fft == NULL)
-        fft = new MicroBitAudioProcessor(*splitter, false);
+        fft = new MicroBitAudioProcessor(*splitter, virtualOutputPin, false);
 
     //Initilise Morse Detector
     if (morse == NULL)
-        morse = new MorseCode(*fft,'A', 'B', virtualOutputPin, false);
+        morse = new MorseCode(*fft,'A', 'E', virtualOutputPin, false);
 
     //Initilise Voice Morse Detector
     if (voiceMorse == NULL)
         voiceMorse = new MorseCode(*fft, virtualOutputPin, false);
+
+    //Initilise Voice Morse Detector
+    if (tap == NULL)
+        tap = new TapSequenceRecogniser(*fft, false);
 
     // Register listener for splitter events
     if(EventModel::defaultEventBus){

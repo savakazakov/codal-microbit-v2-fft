@@ -103,7 +103,7 @@ private:
     ManagedBuffer outputBuffer;
 
     public:
-    MicroBitAudioProcessor(DataSource& source, bool connectImmediately = true); 
+    MicroBitAudioProcessor(DataSource& source, Pin &p, bool connectImmediately = true); 
     ~MicroBitAudioProcessor(); 
     virtual int pullRequest();
     virtual void connect(DataSink &downstream);
@@ -118,6 +118,9 @@ private:
     void startRecording();
     void stopRecording();
     void sendEvent(char letter);
+    void playFrequency(int frequency, int ms);
+    void playFrequency(char note, int ms);
+    int noteToFrequency(char note);
     /**
      *  Determine the data format of the buffers streamed out of this component.
      */

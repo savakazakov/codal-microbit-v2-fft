@@ -37,10 +37,10 @@ DEALINGS IN THE SOFTWARE.
 
 using namespace codal;
 
-Sequence::Sequence(std::string name){
+Sequence::Sequence(char name){
     this->name = name;
     this->live = false;
-    DMESG("%s %s", "Making sequence with name", name);
+    DMESG("%s %c", "Making sequence with name", name);
 
 }
 

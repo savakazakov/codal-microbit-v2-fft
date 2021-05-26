@@ -37,6 +37,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MicRecorder.h"
 #include "MicroBitAudioProcessor.h"
 #include "MorseCode.h"
+#include "TapSequenceRecogniser.h"
 
 namespace codal
 {
@@ -56,6 +57,7 @@ namespace codal
         MicroBitAudioProcessor  *fft;           // Audio PRocessor instance (fft)
         MorseCode               *morse;         // Morse code instance
         MorseCode               *voiceMorse;     // Vocie morse code instance
+        TapSequenceRecogniser   *tap;     // Vocie morse code instance
         NRF52ADCChannel         *mic;           // Microphone ADC Channel from uBit.IO
 
         private:

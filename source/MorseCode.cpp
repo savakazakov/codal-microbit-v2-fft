@@ -591,13 +591,13 @@ char MorseCode::getLastChar(bool primary){
     }
 }
 
-void MorseCode::clearStored(bool primary, int& wordPos){
+void MorseCode::clearStored(bool primary){
     if(!activated){
         startRecognise();
     }
 
     if(primary){
-        wordPos = 0;
+        wordPosP = 0;
         //Print then clear word buffer
         for(int i = 0 ; i < WORD_LEN ; i++){
             primaryWord[i] = '0';
@@ -605,7 +605,7 @@ void MorseCode::clearStored(bool primary, int& wordPos){
 
     }
     else{
-        wordPos = 0;
+        wordPosS = 0;
         //Print then clear word buffer
         for(int i = 0 ; i < WORD_LEN ; i++){
             secondaryWord[i] = '0';
