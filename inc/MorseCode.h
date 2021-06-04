@@ -26,7 +26,7 @@ DEALINGS IN THE SOFTWARE.
 #ifndef MORSE_CODE_H
 #define MORSE_CODE_H
 
-#define DOT_LENGTH 250 //milliseconds
+#define DOT_LENGTH 500 //milliseconds
 #define INPUT_BUF_LEN 7 // max is 7 spaces for a word gap
 #define LETTER_LEN 5
 #define WORD_LEN 20
@@ -85,6 +85,8 @@ class MorseCode : public DataSink
     bool                    voiceMode = false;
     bool                    activated = false;
     bool                    topHeavyP;
+    std::string             messageP = "";
+    std::string             messageS = "";
 
     public:
     //Init for voice activation - anything above idle will be registered as a primary sound, allows humans to beep their own morse
@@ -96,7 +98,7 @@ class MorseCode : public DataSink
     int supportedCheck();
     void startRecognise();
     void stopRecognise();
-    void doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos, int oneBeforeValue, int twoBeforeValue);
+    void doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], std::string& message, int& skip, int& letterPos, int& wordPos, int oneBeforeValue, int twoBeforeValue);
     char lookupLetter(char letterParts[LETTER_LEN]);
     void playFrequency(int frequency, int ms);
     void playChar(char c, bool primary);

@@ -115,6 +115,10 @@ MorseCode::~MorseCode()
     //destructor - free variables
 }
 
+/**
+ * Check the supplied primary and secondary frequencies are valid
+ *
+ */
 int MorseCode::supportedCheck(){
         bool foundP = false;
         bool foundS = false;
@@ -140,11 +144,16 @@ int MorseCode::supportedCheck(){
         }
 }
 
+
+/**
+ * Do something when recieving data from FFT
+ *
+ * @return DEVICE_OK on success.
+ */
 int MorseCode::pullRequest()
 {
     //pull from audio processor that is set up as a data source
     ManagedBuffer noteData = audiostream.pull();
-    //DMESGF("length %d", noteData.length());
 
     if(!recognise)
         return DEVICE_OK;
@@ -153,7 +162,7 @@ int MorseCode::pullRequest()
     samples++;
     if(system_timer_current_time() > timePeriod+DOT_LENGTH){
 
-        //shuffle buff
+        //shuffle buffer
         twoBeforeP = oneBeforeP;
         twoBeforeS = oneBeforeS;
         oneBeforeP = bufP[0];
@@ -186,11 +195,9 @@ int MorseCode::pullRequest()
             //DMESGF("Add: 0");
         }
 
-        //auto a = system_timer_current_time();
-        doRecognise(bufP, primaryLetter, primaryWord, skipP, letterPosP, wordPosP, oneBeforeP, twoBeforeP);
+        doRecognise(bufP, primaryLetter, messageP, skipP, letterPosP, wordPosP, oneBeforeP, twoBeforeP);
         if(secondary)
-            doRecognise(bufS,secondaryLetter, secondaryWord, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
-        //DMESGF("time taken %d", (int) (system_timer_current_time() - a));
+            doRecognise(bufS,secondaryLetter, messageS, skipS, letterPosS, wordPosS, oneBeforeS, twoBeforeS);
         DMESGF("samples : %d", samples);
 
         // -- Timing Correction -- if we arnt getting many samples, then run slightly quicker next time to try and mesh
@@ -237,7 +244,6 @@ int MorseCode::pullRequest()
 
     for(int i = 0 ; i < noteData.length()-1 ; i++){
         if(!(i%5) && i < 10){
-            //DMESGF("%c", (char) *data++);
             if((char)*data == (char) primaryNote){
                 correctCounterP++;
                 if(samples < NUM_SAMPLES/2){
@@ -278,6 +284,10 @@ int MorseCode::pullRequest()
 
 }
 
+/**
+ * Starts Morse recognition
+ *
+ */
 void MorseCode::startRecognise(){
     DMESGF("start recognise");
     if(!activated){
@@ -292,13 +302,28 @@ void MorseCode::startRecognise(){
     //doRecognise();
 }
 
-
+/**
+ * Stops Morse recognition
+ *
+ */
 void MorseCode::stopRecognise(){
     this->recognise = false;
 
 }
 
-void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], char word[WORD_LEN], int& skip, int& letterPos, int& wordPos, int oneBefore, int twoBefore){
+/**
+ * Recognise a given buffer input (consisting of 1 and 0s) into morse . and -
+ *
+ * @param input current input buffer to recognise
+ * @param letter current state of letter being detected
+ * @param string current output buffer
+ * @param skip how many inputs to skip
+ * @param letterPos  position in letter array
+ * @param wordPos position in word array
+ * @param oneBefore value one before input
+ * @param twoBefore value two before input
+ */
+void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], std::string& message, int& skip, int& letterPos, int& wordPos, int oneBefore, int twoBefore){
 
     bool letterEmpty = true;
     bool wordEmpty = true;
@@ -313,33 +338,29 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             letterEmpty = false;
         }
     }
-    for(int i = 0 ; i < WORD_LEN ; i++){
-        if(word[i] != '0'){
-            wordEmpty = false;
-        }
-    }
-
+    if(message.length() > 0)
+        wordEmpty = false;
 
     if(!(skip > 0)){
 
-        //TODO decide order
-        if(/*oneBefore == 0 && */input[0] == 1 && input[1] == 0){
-            //add dot
-            //DMESGF("add dot");
+        if(input[0] == 1 && input[1] == 0){
+            DMESGF("add dot");
             letter[letterPos++] = '.';
             skip = 1;
         }
-        else if(oneBefore == 0 && input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
-            //add dash
-            //DMESGF("add dash");
+        else if(input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 0) {
+            DMESGF("add dash");
             letter[letterPos++] = '-';
             skip = 3;
         }
         //only 2 as one will be skipped as part of inter-character wait?
-        else if(input[0] == 0 && input[1] == 0 && input[2] == 0 && !letterEmpty){
+        else if(input[0] == 0 && input[1] == 0 /*&& input[2] == 0 */&& !letterEmpty){
             //add end of letter
             //DMESGF("end of letter");
-            word[wordPos++] = lookupLetter(letter);
+            //word[wordPos++] = lookupLetter(letter);
+            DMESGF("adding letter %c", lookupLetter(letter));
+            message.push_back(lookupLetter(letter));
+            DMESGF("last message %c", message[message.length()-1]);
             skip = 2;
             letterPos = 0;
             //clear letter buffer
@@ -353,9 +374,10 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             //add end of word
             
             //only add if there is letters before (dont add double space)
-            if(! (word[wordPos-1] == ' ')){
+            if(! (message[message.length()-1] == ' ')){
                 //DMESGF("end of word - add space");
-                word[wordPos++] = ' ';
+                //word[wordPos++] = ' ';
+                message.push_back(' ');
                 skip = 6;
                 letterPos = 0;
             }
@@ -365,6 +387,7 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             }
 
         }
+        //Error correction Cases
         else if(oneBefore == 0 && input[0] == 0 && input[1] == 1 && input[2] == 1 && input[3] == 0 && topHeavyP) {
             //add dash error correct
             DMESGF("add dash 1 ec!");
@@ -383,12 +406,6 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             letter[letterPos++] = '-';
             skip = 3;
         }
-        // else if(twoBefore == 1 && input[0] == 0 && input[1] == 0 && input[2] == 0 && !letterEmpty ) {
-        //     //add dot error correct
-        //     DMESGF("add end dot ec!");
-        //     letter[letterPos++] = '.';
-        //     skip = 2;
-        // }
         else if(twoBefore == 1 && oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 1 && !letterEmpty){
             //add dot error correct
             DMESGF("add dot 1 ec!");
@@ -413,13 +430,6 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             letter[letterPos++] = '.';
             skip = 2;
         }
-        //needs re-work as catches the end of letter (3 x 0's)
-        // else if(oneBefore == 0 && input[0] == 0 && input[1] == 0 && input[2] == 1 && !letterEmpty) {
-        //     //add dot error correct
-        //     DMESGF("add dot 2 ec!");
-        //     letter[letterPos++] = '.';
-        //     skip = 1;
-        // }
         else if(input[0] == 1 && input[1] == 1 && input[2] == 1 && input[3] == 1 && input[4] == 0) {
             //add gap error correct (dont add a dot or dash)
             DMESGF("add gap 1 ec");
@@ -441,32 +451,21 @@ void MorseCode::doRecognise(int input[INPUT_BUF_LEN], char letter[LETTER_LEN], c
             DMESGF("add gap 3 ec");
         }
         else{
-            //DMESGF("Operation Not Found");
-            //Print out buffer to see what we missed
+            DMESGF("Operation Not Found");
         }
     }
     else{
-       //DMESGF("skip");
         skip--;
      }
-
-//     for(int i = 0 ; i < LETTER_LEN ; i++){
-//         DMESGF("%c", (char) letter[i]);
-//     }
-
-//     DMESGF("---");
-//     DMESGF("%d", twoBefore);
-//     DMESGF("%d", oneBefore);
-//     DMESGF("---");
-//     for(int i = 0 ; i < INPUT_BUF_LEN ; i ++)
-// {       DMESGF("%d", input[i]);
-//     }
-//     DMESGF("---");
-
     return;
-
 }
 
+/**
+ * Converts array of . and - into alphabet letter
+ *
+ * @param letterParts array of . and -
+ * @return Char letter represented in morse code
+ */
 char MorseCode::lookupLetter(char letterParts[LETTER_LEN]){
     //make letters into string
     std::string letter;
@@ -486,6 +485,12 @@ char MorseCode::lookupLetter(char letterParts[LETTER_LEN]){
     return '@';
 }
 
+/**
+ * Play frequency through onboard speaker
+ *
+ * @param frequency what freq to play
+ * @param ms hopw long to play for
+ */
 // From samples/AudioTest.cpp
 void MorseCode::playFrequency(int frequency, int ms) {
     if (frequency <= 0 || pitchVolume == 0) {
@@ -505,6 +510,12 @@ void MorseCode::playFrequency(int frequency, int ms) {
     }
 }
 
+/**
+ * Play letter through onboard speaker
+ *
+ * @param c what letter to play
+ * @param primary primary (true) or secondary frequency (false)
+ */
 void MorseCode::playChar(char c, bool primary){
 
     int frequency = 0;
@@ -537,6 +548,12 @@ void MorseCode::playChar(char c, bool primary){
 
 }
 
+/**
+ * Play String of letters through onboard speaker
+ *
+ * @param string String to play
+ * @param primary primary (true) or secondary frequency (false)
+ */
 void MorseCode::playString(std::string input, bool primary){
 
     for(char& c : input) {
@@ -545,6 +562,12 @@ void MorseCode::playString(std::string input, bool primary){
 
 }
 
+/**
+ * Returns the detected message string so far
+ *
+ * @param primary primary (true) or secondary frequency (false)
+ * @return message - result string
+ */
 std::string MorseCode::getStored(bool primary){
     if(!activated){
         startRecognise();
@@ -552,63 +575,87 @@ std::string MorseCode::getStored(bool primary){
 
     std::string ret;
     if(primary){
-        for(int i = 0 ; i < WORD_LEN ; i++)
-            ret.push_back((char) primaryWord[i]);
+        // for(int i = 0 ; i < WORD_LEN ; i++)
+        //     ret.push_back((char) primaryWord[i]);
+        return messageP;
     }
     else{
-        for(int i = 0 ; i < WORD_LEN ; i++)
-            ret.push_back((char) secondaryWord[i]);   
+        // for(int i = 0 ; i < WORD_LEN ; i++)
+        //     ret.push_back((char) secondaryWord[i]);   
+        return messageS;
     }
-    return ret;
+    //return ret;
 
 }
 
+/**
+ * Prints results thorugh serial port
+ *
+ * @param primary primary (true) or secondary frequency (false)
+ */
 void MorseCode::serialPrintStored(bool primary){
     if(!activated){
         startRecognise();
     }
 
     if(primary){
-        for(int i = 0 ; i < WORD_LEN ; i++)
-            DMESGF("%c", (char) primaryWord[i]);
+        // for(int i = 0 ; i < WORD_LEN ; i++)
+        //     DMESGF("%c", (char) primaryWord[i]);
+        for(char& c : messageP) {
+            DMESGF("%c", (char) c);
+        }
     }
     else{
-        for(int i = 0 ; i < WORD_LEN ; i++)
-            DMESGF("%c", (char) secondaryWord[i]);
+        // for(int i = 0 ; i < WORD_LEN ; i++)
+        //     DMESGF("%c", (char) secondaryWord[i]);
+        for(char& c : messageS) {
+            DMESGF("%c", (char) c);
+        }
     }
 }
 
+/**
+ * Returns just the last char detected
+ *
+ * @param primary primary (true) or secondary frequency (false)
+ * @return char - last character detected string
+ */
 char MorseCode::getLastChar(bool primary){
     if(!activated){
         startRecognise();
     }
 
     if(primary){
-        return primaryWord[wordPosP-1];
+        //return primaryWord[wordPosP-1];
+        //messageP.getLast
+        return messageP[messageP.length()-1];
     }
     else{
-        return secondaryWord[wordPosS-1];
+        //return secondaryWord[wordPosS-1];
+        //messageS.getLast
+        return messageS[messageS.length()-1];
     }
 }
 
+/**
+ * Clears the stored message strings
+ *
+ * @param primary primary (true) or secondary frequency (false)
+ */
 void MorseCode::clearStored(bool primary){
     if(!activated){
         startRecognise();
     }
 
+
     if(primary){
-        wordPosP = 0;
-        //Print then clear word buffer
-        for(int i = 0 ; i < WORD_LEN ; i++){
-            primaryWord[i] = '0';
-        }
+
+        messageP = "";
 
     }
     else{
-        wordPosS = 0;
-        //Print then clear word buffer
-        for(int i = 0 ; i < WORD_LEN ; i++){
-            secondaryWord[i] = '0';
-        }
+
+        messageS = "";
+
     }
 }

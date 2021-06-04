@@ -66,6 +66,11 @@ MicroBitAudioProcessor::~MicroBitAudioProcessor()
     free(output);
 }
 
+/**
+ * Return latest FFT Data
+ *
+ * @return DEVICE_OK on success.
+ */
 ManagedBuffer MicroBitAudioProcessor::pull(){
     if(!recording){
         this->recording = true;
@@ -73,10 +78,19 @@ ManagedBuffer MicroBitAudioProcessor::pull(){
     return outputBuffer;
 }
 
+/**
+ * Set the downstream component to recieve pull requests
+ *
+ */
 void MicroBitAudioProcessor::connect(DataSink &downstream){
     this->downstream = &downstream;
 }
 
+/**
+ * Do something when recieving data from Mic
+ *
+ * @return DEVICE_OK on success.
+ */
 int MicroBitAudioProcessor::pullRequest()
 {
     auto mic_samples = audiostream.pull();
@@ -88,7 +102,6 @@ int MicroBitAudioProcessor::pullRequest()
         return DEVICE_OK;
 
 
-
     int8_t *data = (int8_t *) &mic_samples[0];
 
     for (int i=0; i < mic_samples.length(); i++)
@@ -98,7 +111,6 @@ int MicroBitAudioProcessor::pullRequest()
 
         if (!(position % CYCLE_SIZE))
         {
-            //auto a = system_timer_current_time();
             if(position >= (FFT_SAMPLES + CYCLE_SIZE) -1 )
                 position= 0;
 
@@ -106,10 +118,7 @@ int MicroBitAudioProcessor::pullRequest()
             if(offset >= (FFT_SAMPLES + CYCLE_SIZE) -1){
                 offset = 0;
             }
-            //DMESGF("using offset %d", offset);
 
-            //take only FFT_SAMPLES number of samples from input buffer which is size FFT_SAMPLES + CYCLE_SIZE
-            //starting from offset
             int temp_offset = offset;
             int pos = 0;
             for(int i = 0; i < FFT_SAMPLES ; i++ ){
@@ -117,16 +126,15 @@ int MicroBitAudioProcessor::pullRequest()
                     temp_offset = 0;
                     pos = 0;
                 }
-                //DMESGF("adding input position %d in location %d of samples");
                 samples[i] = input[temp_offset + pos++];
             }
 
             arm_rfft_fast_f32(&fft_instance, samples, output, 0);
             arm_cmplx_mag_f32(output, magOut, FFT_SAMPLES / 2);
-            //DMESGF("===== output =====");
-            //for(int i = 0 ; i <FFT_SAMPLES / 2 ; i ++ ){
-                //DMESGF("%d", (int) mag[i]);
-            //}
+            // DMESGF("===== output =====");
+            // for(int i = 0 ; i <FFT_SAMPLES / 2 ; i ++ ){
+            //     DMESGF("%d", (int) magOut[i]);
+            // }
 
             arm_max_f32(magOut , FFT_SAMPLES / 2, &maxValue, &resultIndex);
 
@@ -152,10 +160,8 @@ int MicroBitAudioProcessor::pullRequest()
             }
             highestBinBuffer[0] = 0;
 
-            if((int)lastFreq<600){
+            if((int)lastFreq<800){
                 //sine wave
-                //DMESGF("1st Freq %d", (int) lastFreq);
-                //DMESGF("2nd Freq %d", (int) secondHarmonicFreq);
                 closestNote = frequencyToNote(lastFreq);
                 secondHarmonic = frequencyToNote(secondHarmonicFreq);
             }
@@ -165,11 +171,18 @@ int MicroBitAudioProcessor::pullRequest()
                 secondHarmonic = frequencyToNote(secondHarmonicFreq);
             }
 
-            //Send detected events
-            sendEvent(closestNote);
-            sendEvent(secondHarmonic);
-            //DMESGF("%d", lastFreq);
-            //DMESGF("%d", secondHarmonicFreq);
+            //Send detected events (only if 2 in a row are the same to remove noise)
+            if(lastDetected == closestNote){
+                sendEvent(closestNote);
+                
+            }
+            if(lastDetectedS == secondHarmonic){
+                sendEvent(secondHarmonic);
+            }         
+
+            lastDetected = closestNote;
+            lastDetectedS = secondHarmonic;
+
 
             uint8_t notIdle = 0;
             //IDLE Freq is ~42 so use 60 to have leeway (spoken frequencies are around 150+)
@@ -190,17 +203,21 @@ int MicroBitAudioProcessor::pullRequest()
                 outputBuffer.setByte(10,(uint8_t) notIdle);
                 downstream->pullRequest();
             }
-            //DMESGF("Time taken to do FFT %d", (int) (system_timer_current_time() - a));
         }
     }
     return DEVICE_OK;
 }
 
+/**
+ * Sends an event that a note was detected
+ *
+ * @param letter Which letter was detected
+ */
 void MicroBitAudioProcessor::sendEvent(char letter){
     std::map<char, int>::iterator it;
     for(it=eventCode.begin(); it!=eventCode.end(); ++it){
-      if(it->first == letter){
-        DMESGF("detected %d", it->second);
+      if(it->first == letter && it->first != lastEventSent){
+        lastEventSent = it->first;
         Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second );
         return;
       }
@@ -209,23 +226,23 @@ void MicroBitAudioProcessor::sendEvent(char letter){
 
 bool sortFunction(PeakDataPoint a, PeakDataPoint b){return (a.index < b.index);}
 
+/**
+ * Determines the harmonic frequency from a square wave FFT output
+ *
+ * @return DEVICE_OK on success.
+ */
 int MicroBitAudioProcessor::getClosestNoteSquare(){
-    //DMESG("Get closest square");
 
     //create copy so we still have reference to index
     for(int i = 0 ; i < (int) FFT_SAMPLES/2 ; i++){
         cpy[i] = magOut[i];
     }
 
-    //Order peaks
-    //std::sort(cpy, cpy+(int)FFT_SAMPLES/2);
-
     //Get highest ones and their index - dont take if value is within <leeway> bins either side of an already stored point
     int i = 0; //position in peaks array
     bool pass = true;
     int leeway = 6;
 
-    //try and use arm max insted? (Dont sort) - just as slow :(
     while(i < NUM_PEAKS){
         arm_max_f32(cpy , FFT_SAMPLES / 2, &maxValue, &resultIndex);       
         pass = true;
@@ -233,7 +250,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
             peaks[i].value = (int) maxValue;
             peaks[i].index = resultIndex;
             i++;
-            //p++;
         }
         else{
             for(int k = 0 ; k < i ; k ++){
@@ -245,27 +261,20 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
                 peaks[i].value = (int) maxValue;
                 peaks[i].index = resultIndex;
                 i++;
-                //p++;
             }
         }
         cpy[resultIndex] = 0;
     }
     
-    //order by index (dont need?)
-    //std::sort(peaks, peaks+NUM_PEAKS, sortFunction);
-
-
     std::unordered_map<int, int> hash3;
-    //int distances[NUM_PEAKS*NUM_PEAKS];
     distancesPointer = 0;
     for(int i = 0 ; i < NUM_PEAKS ; i++){
         for(int j = 0 ; j < NUM_PEAKS ; j++){
             if(i != j){
                 int dist = (int) abs(peaks[i].index - peaks[j].index);
-                //48 = middle C, 91 = Middle B
+                //48 = middle C, 91 = Middle B - EXPAND if expanding range
                 if(dist > 45 && dist < 100){
                     distances[distancesPointer] = dist;
-                    //DMESGF("distance: %d + DP: %d", (int) distances[distancesPointer],  (int) distancesPointer);
                     hash3[(int)distances[(int)distancesPointer]]++;
                     distancesPointer++;
                 }
@@ -294,7 +303,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
 
     float freqDetected = binResolution * (result);
 
-    //DMESGF("freq Detected %d", (int) freqDetected);
 
     //Add detected frequency to list so average can be found
     std::unordered_map<int, int> highestBins;
@@ -339,8 +347,6 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         }
     }
 
-    //DMESG("Average frequency  %d", (int) lastFreq);
-    //DMESG("2nd Harmonic Freq  %d", (int) secondHarmonicResult);
     //clean up
     for(int i = 0 ; i < NUM_PEAKS ; i++){
         peaks[i].value = 0;
@@ -352,6 +358,12 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
 
 }
 
+/**
+ * Returns a letter note that the given frequency is closest too
+ *
+ * @param frequency integer frequency to get the closest note too
+ * @return Char closest to frequency
+ */
 char MicroBitAudioProcessor::frequencyToNote(int frequency){
     if(250<frequency && frequency <277){
         return 'C'; //C4
@@ -377,6 +389,12 @@ char MicroBitAudioProcessor::frequencyToNote(int frequency){
     return 'X';
 }
 
+/**
+ * Returns a frequency that the letter note is equivalent too
+ *
+ * @param note what note to look up
+ * @return char frequency of note
+ */
 int MicroBitAudioProcessor::noteToFrequency(char note){
     if('C'){
         return 261; //C4
@@ -402,6 +420,11 @@ int MicroBitAudioProcessor::noteToFrequency(char note){
     return 0;
 }
 
+/**
+ * Get the last detected primary frequency
+ *
+ * @return lastFreq - Freqeuncy detected
+ */
 int MicroBitAudioProcessor::getFrequency(){
     if(!recording){
         startRecording();
@@ -409,6 +432,11 @@ int MicroBitAudioProcessor::getFrequency(){
     return lastFreq;
 }
 
+/**
+ * Returns the last detected primary note
+ *
+ * @return closestNote - note detected
+ */
 char MicroBitAudioProcessor::getClosestNote(){
     if(!recording){
         startRecording();;
@@ -416,6 +444,11 @@ char MicroBitAudioProcessor::getClosestNote(){
     return closestNote;
 }
 
+/**
+ * Get the last detected secondary frequency
+ *
+ * @return lastFreq - Freqeuncy detected
+ */
 int MicroBitAudioProcessor::getSecondaryFrequency(){
     if(!recording){
         startRecording();
@@ -423,6 +456,11 @@ int MicroBitAudioProcessor::getSecondaryFrequency(){
     return secondHarmonicFreq;
 }
 
+/**
+ * Returns the last detected secondary note
+ *
+ * @return closestNote - note detected
+ */
 char MicroBitAudioProcessor::getSecondaryNote(){
     if(!recording){
         startRecording();
@@ -430,14 +468,10 @@ char MicroBitAudioProcessor::getSecondaryNote(){
     return secondHarmonic;
 }
 
-
-int MicroBitAudioProcessor::setDivisor(int d)
-{
-    divisor = d;
-    return DEVICE_OK;
-}
-
-
+/**
+ * Start the FFT
+ *
+ */
 void MicroBitAudioProcessor::startRecording()
 {
     if(!activated){
@@ -448,12 +482,22 @@ void MicroBitAudioProcessor::startRecording()
     DMESG("START RECORDING");
 }
 
+/**
+ * Stop the FFT
+ *
+ */
 void MicroBitAudioProcessor::stopRecording()
 {
     this->recording = false;
     DMESG("STOP RECORDING");
 }
 
+/**
+ * Play frequency through onboard speaker
+ *
+ * @param frequency what freq to play
+ * @param ms hopw long to play for
+ */
 // From samples/AudioTest.cpp
 void MicroBitAudioProcessor::playFrequency(int frequency, int ms) {
     if (frequency <= 0 || pitchVolume == 0) {
@@ -473,7 +517,12 @@ void MicroBitAudioProcessor::playFrequency(int frequency, int ms) {
     }
 }
 
-// From samples/AudioTest.cpp
+/**
+ * Play Note through onboard speaker
+ *
+ * @param note what note to play
+ * @param ms hopw long to play for
+ */
 void MicroBitAudioProcessor::playFrequency(char note, int ms) {
     int frequency = noteToFrequency(note);
 
@@ -481,7 +530,7 @@ void MicroBitAudioProcessor::playFrequency(char note, int ms) {
 }
 
 
-// default peak
+// default peak constructor
 PeakDataPoint::PeakDataPoint(){
 
     this->value = 0;

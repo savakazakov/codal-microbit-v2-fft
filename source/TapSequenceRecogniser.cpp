@@ -74,7 +74,9 @@ TapSequenceRecogniser::TapSequenceRecogniser(DataSource &source, bool connectImm
 }
 
 /**
- * Check against stored sequences
+ * Do something when recieving data from FFT - check against saved patterns
+ *
+ * @return DEVICE_OK on success.
  */
 int TapSequenceRecogniser::pullRequest()
 {
@@ -92,7 +94,7 @@ int TapSequenceRecogniser::pullRequest()
 
         if(recording){
             if(correctCounter > 15){
-                currentSequence->sequence[position] = 1;
+                currentSequence->sequence[position] = correctCounter;
             }
             else{
                 currentSequence->sequence[position] = 0;
@@ -113,7 +115,7 @@ int TapSequenceRecogniser::pullRequest()
         }
         //add new
         if(correctCounter > 15){
-            liveBuffer[SEQUENCE_SIZE-1] = 1;
+            liveBuffer[SEQUENCE_SIZE-1] = correctCounter;
         }
         else{
             liveBuffer[SEQUENCE_SIZE-1] = 0;
@@ -122,8 +124,6 @@ int TapSequenceRecogniser::pullRequest()
         //Match to saved sequences
         for(int i = 0 ; i < NUM_SAVED_SEQUENCES ; i++){
             if(savedSequences[i] != NULL && savedSequences[i]->live == true){
-                // DMESG("%s", savedSequences[i]->live ? "true" : "false");
-                // DMESG("%s,", savedSequences[i]->name);
                 //Euclidean Distance Calculation
                 double ans = 0;
                 for(int j = 0 ; j < SEQUENCE_SIZE ; j++){
@@ -132,7 +132,8 @@ int TapSequenceRecogniser::pullRequest()
                 }
                 double distance = sqrt(ans);
                 DMESG("%s, %d", "distance ", (int) distance);
-                if(distance == 0){
+                //Distance threshold - determines fuzziness
+                if(distance < 20){
                     DMESG("!Match Found! %d", i);
                     Event e(DEVICE_ID_TAP, i+1);
                 }
@@ -155,7 +156,12 @@ int TapSequenceRecogniser::pullRequest()
     return DEVICE_OK;
 }
 
-// Start recording a clip - will overwrite if one already exists
+
+/**
+ * Start recording a clip - will overwrite if one already exists
+ *
+ * @param name name of sequence to record
+ */
 void TapSequenceRecogniser::recordSequence(char name)
 {
     if(!activated){
@@ -182,7 +188,12 @@ void TapSequenceRecogniser::recordSequence(char name)
 
 }
 
-// record over an existing sequence
+ 
+/**
+ * Record over an existing sequence
+ *
+ * @param name name of sequence to re-record
+ */
 void TapSequenceRecogniser::redoSequence(int i){
 
     DMESGF("redo sequence");

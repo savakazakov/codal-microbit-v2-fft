@@ -95,6 +95,9 @@ private:
     int highestBinBuffer[NUM_RUNS_AVERAGE];
     int timer = 0;
     int timer2 = 0;
+    char lastEventSent = 'X';
+    char lastDetected = 'X';
+    char lastDetectedS = 'X';
 
 
     PeakDataPoint peaks[NUM_PEAKS];
