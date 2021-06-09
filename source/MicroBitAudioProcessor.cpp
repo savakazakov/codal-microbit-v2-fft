@@ -439,7 +439,7 @@ int MicroBitAudioProcessor::getFrequency(){
  */
 char MicroBitAudioProcessor::getClosestNote(){
     if(!recording){
-        startRecording();;
+        startRecording();
     }
     return closestNote;
 }
