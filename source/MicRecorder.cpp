@@ -79,13 +79,13 @@ void MicRecorder::startRecording()
 {
 
     if(!activated){
-    	//DMESG("Mic recorder connecting");
+    	DMESG("Mic recorder connecting");
         upstream.connect(*this);
         activated = true;
 	}
 
     if(!recording){
-		//DMESG("Start Recording");
+		DMESG("Start Recording");
         clearStored();
     	position = 0;
     	recording = true;
@@ -138,7 +138,7 @@ void MicRecorder::playback(int sampleRate)
         MicroBitAudio::requestActivation();
     }
     // TODO - this will set the global mixer sample rate
-    mixer.setSampleRate(sampleRate);
+    //mixer.setSampleRate(sampleRate);
     
     /*
     // Used to debug what we are actually sending to the speaker - save output as a binary and import to audacity to inspect
