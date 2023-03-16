@@ -31,6 +31,10 @@ DEALINGS IN THE SOFTWARE.
 #include "SoundExpressions.h"
 #include "SoundEmojiSynthesizer.h"
 #include "StreamSplitter.h"
+#include "MicRecorder.h"
+#include "MicroBitAudioProcessor.h"
+#include "MorseCode.h"
+#include "TapSequenceRecogniser.h"
 
 using namespace codal;
 
@@ -95,9 +99,28 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     //Initilise level detector SPL and attach to splitter
     levelSPL = new LevelDetectorSPL(*rawSplitter->createChannel(), 85.0, 65.0, 16.0, 0, DEVICE_ID_MICROPHONE, false);
 
-    // Connect to the splitter - this COULD come after we create it, before we add any stages, as these are dynamic and will only connect on-demand, but just in case
-    // we're going to follow the schema set out above, to be 100% sure.
-    if(EventModel::defaultEventBus)
+    //Initilise Mic Recorder
+    if (recorder == NULL)
+        recorder = new MicRecorder(*splitter, mixer, false);
+
+    //Initilise fft
+    if (fft == NULL)
+        fft = new MicroBitAudioProcessor(*splitter, virtualOutputPin, false);
+
+    //Initilise Morse Detector
+    if (morse == NULL)
+        morse = new MorseCode(*fft,'A', 'E', virtualOutputPin, false);
+
+    //Initilise Voice Morse Detector
+    if (voiceMorse == NULL)
+        voiceMorse = new MorseCode(*fft, virtualOutputPin, false);
+
+    //Initilise Voice Morse Detector
+    if (tap == NULL)
+        tap = new TapSequenceRecogniser(*fft, false);
+
+    // Register listener for splitter events
+    if(EventModel::defaultEventBus){
         EventModel::defaultEventBus->listen(DEVICE_ID_SPLITTER, DEVICE_EVT_ANY, this, &MicroBitAudio::onSplitterEvent, MESSAGE_BUS_LISTENER_IMMEDIATE);
 }
 

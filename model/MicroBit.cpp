@@ -339,6 +339,12 @@ void MicroBit::onListenerRegisteredEvent(Event evt)
             // The level detector SPL uses lazy instantiation, we just need to read the data once to start it running.
             audio.levelSPL->getValue();
             break;
+            
+        case DEVICE_ID_AUDIO_PROCESSOR:
+            // A listener has been registered for the fft audio processpr
+            // We need to start running the processor when event activated.
+            audio.fft->startRecording();
+            break;
     }
 }
 
@@ -424,4 +430,3 @@ void microbit_dmesg_flush()
 #endif
 #endif
 }
-

@@ -34,6 +34,10 @@ DEALINGS IN THE SOFTWARE.
 #include "StreamSplitter.h"
 #include "LevelDetector.h"
 #include "LevelDetectorSPL.h"
+#include "MicRecorder.h"
+#include "MicroBitAudioProcessor.h"
+#include "MorseCode.h"
+#include "TapSequenceRecogniser.h"
 #include "LowPassFilter.h"
 
 // Status Flags
@@ -63,6 +67,12 @@ namespace codal
         LevelDetector           *level;         // Level Detector instance
         LevelDetectorSPL        *levelSPL;      // Level Detector SPL instance
         LowPassFilter           *micFilter;     // Low pass filter to remove high frequency noise on the mic
+        MicRecorder             *recorder;      // Mic Recorder instance
+        MicroBitAudioProcessor  *fft;           // Audio PRocessor instance (fft)
+        MorseCode               *morse;         // Morse code instance
+        MorseCode               *voiceMorse;     // Vocie morse code instance
+        TapSequenceRecogniser   *tap;     // Vocie morse code instance
+        NRF52ADCChannel         *mic;           // Microphone ADC Channel from uBit.IO
 
         private:
         bool speakerEnabled;                    // State of on board speaker
