@@ -64,8 +64,8 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     synth.allowEmptyBuffers(true);
 
     mic = adc.getChannel(microphone, false);
-    adc.setSamplePeriod( 1e6 / 22000 );
-    mic->setGain(7,0);
+    adc.setSamplePeriod(1e6 / 22000);
+    mic->setGain(7, 0);
 
     // Implementers note: The order that the pipeline comes up here is quite senitive. If we connect up to splitters after starting to
     // listen for events from them, we'll see channel startup events (which are valid!) that we don't want. So roughly always follow
@@ -84,7 +84,13 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     rawSplitter = new StreamSplitter(*micFilter);
 
     //Initilise stream normalizer
-    processor = new StreamNormalizer(*rawSplitter->createChannel(), 0.08f, true, DATASTREAM_FORMAT_8BIT_SIGNED, 10);
+    processor = new StreamNormalizer(*rawSplitter->createChannel(), 1.0f, true, DATASTREAM_FORMAT_8BIT_SIGNED, 10);
+
+    // Initilise fft
+    fft = new MicroBitAudioProcessor(*rawSplitter->createChannel(), false);
+
+    //Initilise level detector SPL and attach to splitter
+    levelSPL = new LevelDetectorSPL(*rawSplitter->createChannel(), 85.0, 65.0, 16.0, 0, DEVICE_ID_MICROPHONE, false);
 
     // Connect to the rawSplitter. This must come AFTER the processor, to prevent the processor's channel activation starting the microphone
     if(EventModel::defaultEventBus)
@@ -96,38 +102,33 @@ MicroBitAudio::MicroBitAudio(NRF52Pin &pin, NRF52Pin &speaker, NRF52ADC &adc, NR
     //Initilise level detector and attach to splitter
     level = new LevelDetector(*splitter->createChannel(), 150, 75, DEVICE_ID_SYSTEM_LEVEL_DETECTOR, false);
 
-    //Initilise level detector SPL and attach to splitter
-    levelSPL = new LevelDetectorSPL(*rawSplitter->createChannel(), 85.0, 65.0, 16.0, 0, DEVICE_ID_MICROPHONE, false);
-
     //Initilise Mic Recorder
-    if (recorder == NULL)
-        recorder = new MicRecorder(*splitter, mixer, false);
+    recorder = new MicRecorder(*splitter->createChannel(), mixer, false);
 
-    //Initilise fft
-    if (fft == NULL)
-        fft = new MicroBitAudioProcessor(*splitter, virtualOutputPin, false);
+    // // Initilise fft
+    // fft = new MicroBitAudioProcessor(*splitter->createChannel(), virtualOutputPin, false);
 
     //Initilise Morse Detector
-    if (morse == NULL)
-        morse = new MorseCode(*fft,'A', 'E', virtualOutputPin, false);
+    // morse = new MorseCode(*fft,'A', 'E', virtualOutputPin, false); // REMOVE
 
     //Initilise Voice Morse Detector
-    if (voiceMorse == NULL)
-        voiceMorse = new MorseCode(*fft, virtualOutputPin, false);
+    // voiceMorse = new MorseCode(*fft, virtualOutputPin, false); // REMOVE
 
     //Initilise Voice Morse Detector
-    if (tap == NULL)
-        tap = new TapSequenceRecogniser(*fft, false);
+    // tap = new TapSequenceRecogniser(*fft, false); // REMOVE
 
     // Register listener for splitter events
-    if(EventModel::defaultEventBus){
+    if(EventModel::defaultEventBus)
+    {
         EventModel::defaultEventBus->listen(DEVICE_ID_SPLITTER, DEVICE_EVT_ANY, this, &MicroBitAudio::onSplitterEvent, MESSAGE_BUS_LISTENER_IMMEDIATE);
+    }
 }
 
 /**
  * Handle events from splitter
  */
-void MicroBitAudio::onSplitterEvent(MicroBitEvent e){
+void MicroBitAudio::onSplitterEvent(MicroBitEvent e)
+{
     if( e.value == SPLITTER_CHANNEL_CONNECT )
         activateMic();
     

@@ -60,7 +60,7 @@ namespace codal
         public:
         static MicroBitAudio    *instance;      // Primary instance of MicroBitAudio, on demand activated.
         Mixer2                  mixer;          // Multi channel audio mixer
-        NRF52ADCChannel *mic;                   // Microphone ADC Channel from uBit.IO
+        NRF52ADCChannel         *mic;           // Microphone ADC Channel from uBit.IO
         StreamNormalizer        *processor;     // Stream Normaliser instance
         StreamSplitter          *splitter;      // Stream Splitter instance (8bit normalized output)
         StreamSplitter          *rawSplitter;   // Stream Splitter instance (raw input)
@@ -70,9 +70,8 @@ namespace codal
         MicRecorder             *recorder;      // Mic Recorder instance
         MicroBitAudioProcessor  *fft;           // Audio PRocessor instance (fft)
         MorseCode               *morse;         // Morse code instance
-        MorseCode               *voiceMorse;     // Vocie morse code instance
-        TapSequenceRecogniser   *tap;     // Vocie morse code instance
-        NRF52ADCChannel         *mic;           // Microphone ADC Channel from uBit.IO
+        MorseCode               *voiceMorse;    // Voice morse code instance
+        TapSequenceRecogniser   *tap;           // Voice morse code instance
 
         private:
         bool speakerEnabled;                    // State of on board speaker

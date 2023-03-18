@@ -32,11 +32,11 @@ DEALINGS IN THE SOFTWARE.
 #include "MemorySource.h"
 #include "MicroBitAudio.h"
 #include "Mixer2.h"
-#include "../source/samples/SerialStreamer.h"
+// #include "SerialStreamer.h"
 
 using namespace codal;
 static MemorySource *sampleSource = NULL;
-static SerialStreamer *streamer = NULL;
+// static SerialStreamer *streamer = NULL;
 auto t1 = system_timer_current_time();
 auto t2 = system_timer_current_time();
 

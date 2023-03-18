@@ -9,6 +9,7 @@ and/or sell copies of the Software, and to permit persons to whom the
 Software is furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software.
+
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
@@ -26,185 +27,160 @@ DEALINGS IN THE SOFTWARE.
 #include <unordered_map>
 #include <cstdlib>
 #include <map>
+#include <string>
 
-static Pin *pin = NULL;
-static uint8_t pitchVolume = 0xff;
 std::map<char, int> eventCode = {{'C', 1}, {'D', 2}, {'E', 3}, {'F', 4}, {'G', 5}, {'A', 6}, {'B', 7}};
 
-MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, Pin &p, bool connectImmediately) : audiostream(source)
+MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, bool connectImmediately) : 
+    upstream(source)
 {
+    this->ifftFlag = IFFT_FLAG;
 
-    this->ifftFlag = 0;
-    this->bitReverse = 1;
     this->lastLastFreq = -1;
-    this->activated = false;
-    pin = &p;
 
-    divisor = 1;
     lastFreq = 0;
-    //Init CFFT module
-    arm_rfft_fast_init_f32(&fft_instance, FFT_SAMPLES);
 
-    ManagedBuffer outputBuffer(outBuf, 11);
-    this->outputBuffer = outputBuffer;  
+    // Init RFFT module.
+    arm_rfft_fast_init_f32(&fftInstance, FFT_SAMPLES);
 
-    this->position = FFT_SAMPLES; //first one in to the cycle size overflow buffer (so wrap arround works correctly)
-    this->offset = 0;
-    recording = false;
+    ManagedBuffer downstreamBuffer(outBuf, 11);
+    this->downstreamBuffer = downstreamBuffer;
 
-    DMESG("%s %p", "Audio Processor connecting to upstream, Pointer to me : ", this);
-    if(connectImmediately){
-        audiostream.connect(*this);
+    ManagedBuffer upstreamBuffer;
+
+    DMESG("%s %p\n", "Audio Processor connecting to upstream, Pointer to me : ", this);
+
+    if(connectImmediately)
+    {
+        upstream.connect(*this);
         activated = true;
     }
-    
 }
 
 MicroBitAudioProcessor::~MicroBitAudioProcessor()
 {
     //TODO fill out these? or not needed now malloc is gone?
-    free(output);
 }
 
 /**
- * Return latest FFT Data
+ * Return latest FFT Data.
  *
  * @return DEVICE_OK on success.
  */
-ManagedBuffer MicroBitAudioProcessor::pull(){
-    if(!recording){
+ManagedBuffer MicroBitAudioProcessor::pull()
+{
+    if(!recording)
         this->recording = true;
-    }
-    return outputBuffer;
+
+    return downstreamBuffer;
 }
 
 /**
- * Set the downstream component to recieve pull requests
- *
+ * Set the downstream component to recieve pull requests.
  */
-void MicroBitAudioProcessor::connect(DataSink &downstream){
+void MicroBitAudioProcessor::connect(DataSink &downstream)
+{
     this->downstream = &downstream;
 }
 
 /**
- * Do something when recieving data from Mic
+ * Do something when recieving data from Mic.
  *
  * @return DEVICE_OK on success.
  */
 int MicroBitAudioProcessor::pullRequest()
 {
-    auto mic_samples = audiostream.pull();
+    // DMESG("In MicroBitAudioProcessor - pullRequest - Start."); // REMOVE
+    fiber_sleep(1);
 
-    //DMESGF("Time between PR %d", (int) (system_timer_current_time() - timer));
-    timer = system_timer_current_time();
-
+    upstreamBuffer = upstream.pull();
+    
+    // Return promptly if the FFT is not recording.
     if (!recording)
         return DEVICE_OK;
 
+    // Transform the data in the required input format for the arm_rfft_fast_f32, i.e. float32_t*.
+    this->bytesPerSample = DATASTREAM_FORMAT_BYTES_PER_SAMPLE(this->upstream.getFormat());
+    // DMESG("upstream format = %d", this->bytesPerSample); // REMOVE should be 2.
+    int sampleCount = upstreamBuffer.length() / bytesPerSample;
+    // DMESG("sampleCount = %d", sampleCount); // REMOVE should be 512 / 2 = 256
 
-    int8_t *data = (int8_t *) &mic_samples[0];
+    // Initialize the exact amount of space needed.
+    float32_t fftInBuffer[sampleCount];
 
-    for (int i=0; i < mic_samples.length(); i++)
+    uint8_t *in = upstreamBuffer.getBytes();
+
+    // Construct the FFT input given the type conversion of the data.
+    for (int i = 0; i < sampleCount; i++)
     {
+        float value = (float32_t) StreamNormalizer::readSample[this->upstream.getFormat()](in);
+        fftInBuffer[i] = value;
 
-        input[position++] = (int8_t)*data++;
-
-        if (!(position % CYCLE_SIZE))
-        {
-            if(position >= (FFT_SAMPLES + CYCLE_SIZE) -1 )
-                position= 0;
-
-            offset+=CYCLE_SIZE;
-            if(offset >= (FFT_SAMPLES + CYCLE_SIZE) -1){
-                offset = 0;
-            }
-
-            int temp_offset = offset;
-            int pos = 0;
-            for(int i = 0; i < FFT_SAMPLES ; i++ ){
-                if(temp_offset + pos >= (FFT_SAMPLES + CYCLE_SIZE)){
-                    temp_offset = 0;
-                    pos = 0;
-                }
-                samples[i] = input[temp_offset + pos++];
-            }
-
-            arm_rfft_fast_f32(&fft_instance, samples, output, 0);
-            arm_cmplx_mag_f32(output, magOut, FFT_SAMPLES / 2);
-            // DMESGF("===== output =====");
-            // for(int i = 0 ; i <FFT_SAMPLES / 2 ; i ++ ){
-            //     DMESGF("%d", (int) magOut[i]);
-            // }
-
-            arm_max_f32(magOut , FFT_SAMPLES / 2, &maxValue, &resultIndex);
-
-            //Do Parabolic Interpolation
-            float32_t offsetTop = (magOut[resultIndex+1] - magOut[resultIndex-1]);
-            float32_t offsetBottom = 2*((2*magOut[resultIndex]) - magOut[resultIndex-1] - magOut[resultIndex+1]);
-            float32_t parabolicOffset = offsetTop/ offsetBottom;
-
-            //get second harmonic - remove first harmonic and run again
-            magOut[resultIndex] = 0;
-
-            //TODO filter out so that 2nd harmonic isnt within 5 hz each way of primary
-            arm_max_f32(magOut, FFT_SAMPLES/2, &maxValue, &secondHarmonicIndex);
-
-            float frequencyDetected = binResolution * ((float) resultIndex + (float) parabolicOffset);
-            secondHarmonicFreq = binResolution * ((float) secondHarmonicIndex);
-            lastFreq = (int) frequencyDetected;
-            secondHarmonicFreq = secondHarmonicFreq;
-
-            //Update rolling square buffer with 0 (so that its reset to 0 if silence and dosnt keep old high peak)
-            for(int i = NUM_RUNS_AVERAGE-1 ; i > 0 ; i --){
-                highestBinBuffer[i] = highestBinBuffer[i-1];
-            }
-            highestBinBuffer[0] = 0;
-
-            if((int)lastFreq<800){
-                //sine wave
-                closestNote = frequencyToNote(lastFreq);
-                secondHarmonic = frequencyToNote(secondHarmonicFreq);
-            }
-            else{
-                //square wave - probbaly from microbit
-                closestNote = frequencyToNote(getClosestNoteSquare());
-                secondHarmonic = frequencyToNote(secondHarmonicFreq);
-            }
-
-            //Send detected events (only if 2 in a row are the same to remove noise)
-            if(lastDetected == closestNote){
-                sendEvent(closestNote);
-                
-            }
-            if(lastDetectedS == secondHarmonic){
-                sendEvent(secondHarmonic);
-            }         
-
-            lastDetected = closestNote;
-            lastDetectedS = secondHarmonic;
-
-
-            uint8_t notIdle = 0;
-            //IDLE Freq is ~42 so use 60 to have leeway (spoken frequencies are around 150+)
-            if(lastFreq > 60){
-                notIdle = 1;
-            }
-            if(downstream != NULL){
-                outputBuffer.setByte(0, (uint8_t) closestNote);
-                outputBuffer.setByte(1, (uint8_t) (lastFreq/1000)%10);
-                outputBuffer.setByte(2, (uint8_t) (lastFreq/100)%10);
-                outputBuffer.setByte(3, (uint8_t) (lastFreq/10) %10);
-                outputBuffer.setByte(4, (uint8_t) (lastFreq % 10));
-                outputBuffer.setByte(5, (uint8_t) secondHarmonic);
-                outputBuffer.setByte(6, (uint8_t) (secondHarmonicFreq/1000)%10);
-                outputBuffer.setByte(7, (uint8_t) (secondHarmonicFreq/100)%10);
-                outputBuffer.setByte(8, (uint8_t) (secondHarmonicFreq/10)%10);
-                outputBuffer.setByte(9, (uint8_t) (secondHarmonicFreq%10));
-                outputBuffer.setByte(10,(uint8_t) notIdle);
-                downstream->pullRequest();
-            }
-        }
+        in += bytesPerSample;
     }
+
+    status = ARM_MATH_SUCCESS;
+    status = arm_rfft_fast_init_f32(&fftInstance, FFT_SAMPLES);
+
+    // Input is real, output is alternating between real and complex.
+    arm_rfft_fast_f32(&fftInstance, fftInBuffer, complexFFT, ifftFlag);
+
+    // First entry is all real DC offset.
+    float32_t DCoffset = complexFFT[0];
+
+    // Separate real and complex values.
+    for (int i = 0; i < FFT_SAMPLES_HALF - 1; i++)
+    {
+        realFFT[i] = complexFFT[i * 2];
+        imagFFT[i] = complexFFT[(i * 2) + 1];
+    }
+
+    // Find angle of FFT.
+    for (int i = 0; i < FFT_SAMPLES_HALF; i++)
+    {
+        angleFFT[i] = atan2f(imagFFT[i], realFFT[i]);
+    }
+
+    // Compute power.
+    arm_cmplx_mag_squared_f32(complexFFT, powerFFT, FFT_SAMPLES_HALF);
+    // Make sure to start from the second entry.
+    arm_max_f32(&powerFFT[1], FFT_SAMPLES_HALF - 1, &firstHarValue, &firstHarIndex);
+
+    // Correcting index.
+    firstHarIndex += 1;
+
+    // TODO check if this really works.
+    // Do Parabolic Interpolation.
+    float32_t offsetTop = (powerFFT[firstHarIndex + 1] - powerFFT[firstHarIndex - 1]);
+    float32_t offsetBottom = 2 * ((2 * powerFFT[firstHarIndex]) - powerFFT[firstHarIndex - 1] - powerFFT[firstHarIndex + 1]);
+    float32_t parabolicOffset = offsetTop / offsetBottom;
+
+    // // Get second harmonic - remove first harmonic and run again.
+    // powerFFT[firstHarIndex] = 0;
+    
+    float frequencyDetected = BIN_WIDTH * ((float) firstHarIndex + (float) parabolicOffset);
+    // Print the frequency value.
+    lastFreq = (int) frequencyDetected;
+    DMESG("frequencyDetected = %d", (int) frequencyDetected); // REMOVE
+
+    // TODO
+    /* if (downstream != NULL)
+    {
+        outputBuffer.setByte(0, (uint8_t)closestNote);
+        outputBuffer.setByte(1, (uint8_t)(lastFreq / 1000) % 10);
+        outputBuffer.setByte(2, (uint8_t)(lastFreq / 100) % 10);
+        outputBuffer.setByte(3, (uint8_t)(lastFreq / 10) % 10);
+        outputBuffer.setByte(4, (uint8_t)(lastFreq % 10));
+        outputBuffer.setByte(5, (uint8_t)secondHarmonic);
+        outputBuffer.setByte(6, (uint8_t)(secondHarmonicFreq / 1000) % 10);
+        outputBuffer.setByte(7, (uint8_t)(secondHarmonicFreq / 100) % 10);
+        outputBuffer.setByte(8, (uint8_t)(secondHarmonicFreq / 10) % 10);
+        outputBuffer.setByte(9, (uint8_t)(secondHarmonicFreq % 10));
+        outputBuffer.setByte(10, (uint8_t)notIdle);
+        downstream->pullRequest();
+    } */
+
+    // DMESG("In MicroBitAudioProcessor - pullRequest - End."); // REMOVE
     return DEVICE_OK;
 }
 
@@ -213,67 +189,82 @@ int MicroBitAudioProcessor::pullRequest()
  *
  * @param letter Which letter was detected
  */
-void MicroBitAudioProcessor::sendEvent(char letter){
+void MicroBitAudioProcessor::sendEvent(char letter)
+{
     std::map<char, int>::iterator it;
-    for(it=eventCode.begin(); it!=eventCode.end(); ++it){
-      if(it->first == letter && it->first != lastEventSent){
-        lastEventSent = it->first;
-        Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second );
-        return;
-      }
+
+    for(it = eventCode.begin(); it != eventCode.end(); ++it)
+    {
+        if(it->first == letter && it->first != lastEventSent)
+        {
+            lastEventSent = it->first;
+            Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second);
+            return;
+        }
     }
 }
-
-bool sortFunction(PeakDataPoint a, PeakDataPoint b){return (a.index < b.index);}
 
 /**
  * Determines the harmonic frequency from a square wave FFT output
  *
  * @return DEVICE_OK on success.
  */
-int MicroBitAudioProcessor::getClosestNoteSquare(){
-
-    //create copy so we still have reference to index
-    for(int i = 0 ; i < (int) FFT_SAMPLES/2 ; i++){
-        cpy[i] = magOut[i];
+int MicroBitAudioProcessor::getClosestNoteSquare()
+{
+    // Create copy so we still have reference to index.
+    for(int i = 0; i < (int) FFT_SAMPLES / 2; i++)
+    {
+        copy[i] = powerFFT[i];
     }
 
-    //Get highest ones and their index - dont take if value is within <leeway> bins either side of an already stored point
-    int i = 0; //position in peaks array
+    // Get highest ones and their index - don't take if value is within <leeway> bins either side of an already stored point.
+    // Position in peaks array.
+    int i = 0;
     bool pass = true;
     int leeway = 6;
 
-    while(i < NUM_PEAKS){
-        arm_max_f32(cpy , FFT_SAMPLES / 2, &maxValue, &resultIndex);       
+    while(i < NUM_PEAKS)
+    {
+        arm_max_f32(copy , FFT_SAMPLES / 2, &firstHarValue, &firstHarIndex);       
         pass = true;
-        if(i < 1){
-            peaks[i].value = (int) maxValue;
-            peaks[i].index = resultIndex;
+        if(i < 1)
+        {
+            peaks[i].value = (int) firstHarValue;
+            peaks[i].index = firstHarIndex;
             i++;
         }
-        else{
-            for(int k = 0 ; k < i ; k ++){
-                if((int) peaks[k].index < (int) resultIndex+leeway && (int) peaks[k].index > (int) resultIndex-leeway){
+        else
+        {
+            for(int k = 0; k < i; k ++)
+            {
+                if((int) peaks[k].index < (int) firstHarIndex + leeway && (int) peaks[k].index > (int) firstHarIndex - leeway)
+                {
                     pass = false;
                 }
             }
-            if(pass){
-                peaks[i].value = (int) maxValue;
-                peaks[i].index = resultIndex;
+            if(pass)
+            {
+                peaks[i].value = (int) firstHarValue;
+                peaks[i].index = firstHarIndex;
                 i++;
             }
         }
-        cpy[resultIndex] = 0;
+
+        copy[firstHarIndex] = 0;
     }
     
     std::unordered_map<int, int> hash3;
     distancesPointer = 0;
-    for(int i = 0 ; i < NUM_PEAKS ; i++){
-        for(int j = 0 ; j < NUM_PEAKS ; j++){
-            if(i != j){
+    for(int i = 0; i < NUM_PEAKS; i++)
+    {
+        for(int j = 0; j < NUM_PEAKS; j++)
+        {
+            if(i != j)
+            {
                 int dist = (int) abs(peaks[i].index - peaks[j].index);
                 //48 = middle C, 91 = Middle B - EXPAND if expanding range
-                if(dist > 45 && dist < 100){
+                if(dist > 45 && dist < 100)
+                {
                     distances[distancesPointer] = dist;
                     hash3[(int)distances[(int)distancesPointer]]++;
                     distancesPointer++;
@@ -282,80 +273,92 @@ int MicroBitAudioProcessor::getClosestNoteSquare(){
         }
     }
 
-    //pick out most common (primary and secondary) or 'harmonic distance'
-    //common base should be most common gap
+    // Pick out most common (primary and secondary) or 'harmonic distance'.
+    // Common base should be most common gap.
     int count = 0;
     int result = -1;
     int secondCount = 0;
     int secondHarmonicResult = -1;
 
-    for(auto i : hash3){
-        if(count < i.second){
+    for(auto i : hash3)
+    {
+        if(count < i.second)
+        {
             result = i.first;
             count = i.second;
         }
-        if(secondCount < i.second && i.first != result){
+        if(secondCount < i.second && i.first != result)
+        {
             secondHarmonicResult = i.first;
             secondCount = i.second;
         }
     }
-    secondHarmonicFreq = binResolution * secondHarmonicResult;
 
-    float freqDetected = binResolution * (result);
+    secondHarmonicFreq = BIN_WIDTH * secondHarmonicResult;
 
+    float freqDetected = BIN_WIDTH * (result);
 
-    //Add detected frequency to list so average can be found
+    // Add detected frequency to list so average can be found.
+
     std::unordered_map<int, int> highestBins;
     int binPointer = 0;
     highestBinBuffer[0] = (int) freqDetected;
-    for(int i = 0; i < NUM_RUNS_AVERAGE-1 ; i ++){
+
+    for(int i = 0; i < NUM_RUNS_AVERAGE-1 ; i ++)
+    {
         highestBins[highestBinBuffer[binPointer++]]++;
     }
 
-
-    //Average over a few runs to improve accuracy
-    if(NUM_RUNS_AVERAGE > 2){
+    // Average over a few runs to improve accuracy.
+    if(NUM_RUNS_AVERAGE > 2)
+    {
         int countAverager = 0;
         int averageResult = -1;
 
-        for(auto i : highestBins){
-            if(countAverager < i.second && i.first != 0){
+        for(auto i : highestBins)
+        {
+            if(countAverager < i.second && i.first != 0)
+            {
                 averageResult = i.first;
                 countAverager = i.second;
             }
         }
 
-        if(countAverager > AVERAGE_THRESH){
-            // confidence in average should be over AVERAGE_THRESH of total samples
+        if(countAverager > AVERAGE_THRESH)
+        {
+            // Confidence in average should be over AVERAGE_THRESH of total samples.
             lastFreq = (int) averageResult;
-
         }
-        else{
+        else
+        {
             lastFreq = 0; //else give best guess freq detected? or dont give anything?
         }
     }
-    // Just check if current is same as the last
-    else{
+    else
+    {
+        // Just check if current is same as the last.
         lastFreq = (int) freqDetected;
-        if((int) lastFreq == (int) lastLastFreq){
+
+        if((int) lastFreq == (int) lastLastFreq)
+        {
             lastLastFreq = (int) lastFreq;
         }
-        else{
+        else
+        {
             lastLastFreq = (int) lastFreq;
             lastFreq = 0;
-
         }
     }
 
-    //clean up
-    for(int i = 0 ; i < NUM_PEAKS ; i++){
+    // Clean up.
+    for(int i = 0; i < NUM_PEAKS; i++)
+    {
         peaks[i].value = 0;
         peaks[i].index = 0;
         peaks[i].pair = NULL;
     }
 
     return lastFreq;
-
 }
 
 /**
@@ -425,23 +428,16 @@ int MicroBitAudioProcessor::noteToFrequency(char note){
  *
  * @return lastFreq - Freqeuncy detected
  */
-int MicroBitAudioProcessor::getFrequency(){
-    if(!recording){
+int MicroBitAudioProcessor::getFrequency()
+{
+    // DMESG("In MicroBitAudioProcessor - getFrequency - Start\n"); // REMOVE
+    if(!recording)
+    {
+        // DMESG("In MicroBitAudioProcessor - getFrequency - in check if recording\n"); // REMOVE
         startRecording();
     }
-    return lastFreq;
-}
 
-/**
- * Returns the last detected primary note
- *
- * @return closestNote - note detected
- */
-char MicroBitAudioProcessor::getClosestNote(){
-    if(!recording){
-        startRecording();
-    }
-    return closestNote;
+    return lastFreq;
 }
 
 /**
@@ -449,72 +445,38 @@ char MicroBitAudioProcessor::getClosestNote(){
  *
  * @return lastFreq - Freqeuncy detected
  */
-int MicroBitAudioProcessor::getSecondaryFrequency(){
-    if(!recording){
+int MicroBitAudioProcessor::getSecondaryFrequency()
+{
+    if(!recording)
+    {
         startRecording();
     }
+
     return secondHarmonicFreq;
 }
 
 /**
- * Returns the last detected secondary note
- *
- * @return closestNote - note detected
- */
-char MicroBitAudioProcessor::getSecondaryNote(){
-    if(!recording){
-        startRecording();
-    }
-    return secondHarmonic;
-}
-
-/**
- * Start the FFT
- *
+ * Start the FFT.
  */
 void MicroBitAudioProcessor::startRecording()
 {
-    if(!activated){
-        audiostream.connect(*this);
+    if(!activated)
+    {
+        upstream.connect(*this);
         activated = true;
     }
+
     this->recording = true;
-    DMESG("START RECORDING");
+    DMESG("START RECORDING\n");
 }
 
 /**
- * Stop the FFT
- *
+ * Stop the FFT.
  */
 void MicroBitAudioProcessor::stopRecording()
 {
     this->recording = false;
-    DMESG("STOP RECORDING");
-}
-
-/**
- * Play frequency through onboard speaker
- *
- * @param frequency what freq to play
- * @param ms hopw long to play for
- */
-// From samples/AudioTest.cpp
-void MicroBitAudioProcessor::playFrequency(int frequency, int ms) {
-    if (frequency <= 0 || pitchVolume == 0) {
-        pin->setAnalogValue(0);
-    } else {
-        // I don't understand the logic of this value.
-        // It is much louder on the real pin.
-        int v = 1 << (pitchVolume >> 5);
-        // If you flip the order of these they crash on the real pin with E030.
-        pin->setAnalogValue(v);
-        pin->setAnalogPeriodUs(1000000/frequency);
-    }
-    if (ms > 0) {
-        fiber_sleep(ms);
-        pin->setAnalogValue(0);
-        fiber_sleep(5);
-    }
+    DMESG("STOP RECORDING\n");
 }
 
 /**
@@ -523,26 +485,24 @@ void MicroBitAudioProcessor::playFrequency(int frequency, int ms) {
  * @param note what note to play
  * @param ms hopw long to play for
  */
-void MicroBitAudioProcessor::playFrequency(char note, int ms) {
+void MicroBitAudioProcessor::playFrequency(char note, int ms)
+{
     int frequency = noteToFrequency(note);
-
     playFrequency(frequency, ms);
 }
 
-
-// default peak constructor
-PeakDataPoint::PeakDataPoint(){
-
+// Default peak constructor.
+PeakDataPoint::PeakDataPoint()
+{
     this->value = 0;
     this->index = 0;
-
 }
-//peak data point object used in claculations for square waves
-PeakDataPoint::PeakDataPoint(int8_t value, int index){
 
+// Peak data point object used in claculations for square waves.
+PeakDataPoint::PeakDataPoint(int8_t value, int index)
+{
     this->value = value;
     this->index = index;
-
 }
 
 /**
@@ -550,7 +510,7 @@ PeakDataPoint::PeakDataPoint(int8_t value, int index){
  */
 int MicroBitAudioProcessor::getFormat()
 {
-    return audiostream.getFormat();
+    return upstream.getFormat();
 }
 
 /**
@@ -563,6 +523,7 @@ int MicroBitAudioProcessor::setFormat(int format)
 }
 
 // destructor
-PeakDataPoint::~PeakDataPoint(){
+PeakDataPoint::~PeakDataPoint()
+{
 
 }

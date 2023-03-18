@@ -9,6 +9,7 @@ and/or sell copies of the Software, and to permit persons to whom the
 Software is furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software.
+
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
@@ -26,87 +27,101 @@ DEALINGS IN THE SOFTWARE.
 #ifndef MICROBIT_AUDIO_PROCESSOR_H
 #define MICROBIT_AUDIO_PROCESSOR_H
 
-#define MIC_SAMPLE_RATE     (11 * 1024)
-#define FFT_SAMPLES         2048
-#define NUM_PEAKS           12
-#define CYCLE_SIZE          128
-#define NUM_RUNS_AVERAGE    3 //too big means the notes wont change over to the new one as quickly
-#define AVERAGE_THRESH      NUM_RUNS_AVERAGE/2
+// Mic's adc is usually set to a 45.(45) microseconds sampling period.
+// This translates to a sample rate of 22000 Hz.
+#define MIC_SAMPLE_RATE     22000
 
-#define DETECTED_C  1
-#define DETECTED_D  2
-#define DETECTED_E  3
-#define DETECTED_F  4
-#define DETECTED_G  5
-#define DETECTED_A  6
-#define DETECTED_B  7
+// The size of the FFT. This should be the same as the number of samples.
+// I.e. a 256 point signal.
+#define FFT_SAMPLES         256
+#define FFT_SAMPLES_HALF    (FFT_SAMPLES / 2)
+#define IFFT_FLAG           0
+
+// The bin width (also called line spacing) defines the frequency resolution of the FFT.
+#define BIN_WIDTH           ((float) MIC_SAMPLE_RATE / FFT_SAMPLES)
+
+#define NUM_PEAKS           12      // REMOVE
+#define CYCLE_SIZE          128     // REMOVE
+#define NUM_RUNS_AVERAGE    3 //too big means the notes wont change over to the new one as quickly // REMOVE
+#define AVERAGE_THRESH      NUM_RUNS_AVERAGE / 2 // REMOVE
 
 class MicroBitAudioProcessor;
 
 class PeakDataPoint
 {
     public:
-    int8_t value;
-    int index;
-    PeakDataPoint* pair = NULL;
+    int8_t                  value;
+    int                     index;
+    PeakDataPoint*          pair = NULL;
+
     public:
     PeakDataPoint(int8_t value, int index);
     PeakDataPoint();
     ~PeakDataPoint();
-
-
 };
 
+/**
+ * TODO finish Javadoc style comments.
+ * @link
+ * https://arm-software.github.io/CMSIS_5/DSP/html/group__RealFFT.html#ga5d2ec62f3e35575eba467d09ddcd98b5
+ */
 class MicroBitAudioProcessor : public DataSink, public DataSource
 {
+    public:
+    // On demand activated.
+    bool                    recording = false;
+    bool                    activated = false;
 
-public:
-        bool recording;
-        bool activated;
-private:
-    DataSource      &audiostream;   
-    DataSink        *downstream = NULL;        
-    int             zeroOffset;             // unsigned value that is the best effort guess of the zero point of the data source
-    int             divisor;                // Used for LINEAR modes
-    arm_rfft_fast_instance_f32 fft_instance;
-    float32_t input[FFT_SAMPLES + CYCLE_SIZE]; //added CYCLE SIZE window to increase FFT run speed
-    float32_t samples[FFT_SAMPLES];
-    float32_t output[FFT_SAMPLES];
-    float32_t magOut[FFT_SAMPLES/2];
-    float32_t cpy [FFT_SAMPLES/2];
+    private:
+    DataSource              &upstream;   
+    DataSink                *downstream = NULL;
 
-    int distances[NUM_PEAKS*NUM_PEAKS];
-    int distancesPointer;
+    // Unsigned value that is the best effort guess of the zero point of the data source
+    int                     zeroOffset;
 
-    float binResolution = (float) ((11000.0f)/ (float) FFT_SAMPLES);
+    // The direction of the FFT algorithm value = 0 : RFFT value = 1 : RIFFT
+    uint8_t                 ifftFlag;
+    arm_rfft_fast_instance_f32 fftInstance;
+    arm_status              status;
+    // Used to extract the bin of the first/second harmonics.
+    float32_t               firstHarValue;
+    uint32_t                firstHarIndex = 0;
+    float32_t               secondHarValue;
+    uint32_t                secondHarIndex = 0;
 
-    uint32_t ifftFlag;
-    uint32_t bitReverse;
-    uint32_t resultIndex;
-    uint32_t secondHarmonicIndex;
-    uint16_t position;
-    int offset;
-    float maxValue;
-    char closestNote;
-    char secondHarmonic;
-    int lastFreq;
-    int lastLastFreq;
-    int secondHarmonicFreq;
-    int highestBinBuffer[NUM_RUNS_AVERAGE];
-    int timer = 0;
-    int timer2 = 0;
-    char lastEventSent = 'X';
-    char lastDetected = 'X';
-    char lastDetectedS = 'X';
+    // TODO make these static.
+    // complexFFT is the output of performing the FFT calculation.
+    // complexFFT = { real[0], imag[0], real[1], imag[1], real[2], imag[2] ... real[(N/2)-1], imag[(N/2)-1 }
+    // realFFT and imagFFT are used to separate the real and imaginary parts.
+    // powerFFT stores the magnitudes of the result after perfroming the FFT calculation.
+    float32_t               complexFFT[FFT_SAMPLES], realFFT[FFT_SAMPLES_HALF], imagFFT[FFT_SAMPLES_HALF],
+                            angleFFT[FFT_SAMPLES_HALF], powerFFT[FFT_SAMPLES_HALF], copy[FFT_SAMPLES_HALF];
 
+    int distances[NUM_PEAKS * NUM_PEAKS]; // REMOVE
+    int distancesPointer;   // REMOVE
+
+    char secondHarmonic; // REMOVE
+    int lastFreq;        // REMOVE
+    int lastLastFreq;    // REMOVE
+    int secondHarmonicFreq; // REMOVE
+    int highestBinBuffer[NUM_RUNS_AVERAGE]; // REMOVE
+    int timer = 0;                          // REMOVE
+    int timer2 = 0;                         // REMOVE
+    char lastEventSent = 'X';               // REMOVE
+    char lastDetected = 'X';                // REMOVE
+    char lastDetectedS = 'X';               // REMOVE
+
+    int bytesPerSample;
+    float32_t *fftInBuffer;
 
     PeakDataPoint peaks[NUM_PEAKS];
-    //stored (char cast as int)Note..(int)Freq digit 1, freq digit 2, digit 3, freq digit 4, (char cast as int)Note ...
-    uint8_t outBuf[11] = {0,0,0,0,0,0,0,0,0,0,0};
-    ManagedBuffer outputBuffer;
 
-    public:
-    MicroBitAudioProcessor(DataSource& source, Pin &p, bool connectImmediately = true); 
+    // Stored (char cast as int)Note..(int)Freq digit 1, freq digit 2, digit 3, freq digit 4, (char cast as int)Note ...
+    uint8_t outBuf[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    ManagedBuffer downstreamBuffer;
+    ManagedBuffer upstreamBuffer;
+
+    public : MicroBitAudioProcessor(DataSource &source, bool connectImmediately = true);
     ~MicroBitAudioProcessor(); 
     virtual int pullRequest();
     virtual void connect(DataSink &downstream);

@@ -21,6 +21,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MicroBitAudioProcessor.h"
 #include "DataStream.h"
 #include <list>
+#include <string>
 #include <map>
 
 #ifndef MORSE_CODE_H
