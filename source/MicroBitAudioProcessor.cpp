@@ -29,38 +29,30 @@ DEALINGS IN THE SOFTWARE.
 #include <map>
 #include <string>
 
-std::map<char, int> eventCode = {{'C', 1}, {'D', 2}, {'E', 3}, {'F', 4}, {'G', 5}, {'A', 6}, {'B', 7}};
-
-MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, bool connectImmediately) : 
-    upstream(source)
+MicroBitAudioProcessor::MicroBitAudioProcessor(DataSource& source, bool connectImmediately) : upstream(source)
 {
     this->ifftFlag = IFFT_FLAG;
-
-    this->lastLastFreq = -1;
-
-    lastFreq = 0;
+    this->firstHarmonic = 0;
 
     // Init RFFT module.
     arm_rfft_fast_init_f32(&fftInstance, FFT_SAMPLES);
 
-    ManagedBuffer downstreamBuffer(outBuf, 11);
-    this->downstreamBuffer = downstreamBuffer;
+    // TODO fix downstream.
+    // ManagedBuffer downstreamBuffer(outBuf, 11);
+    // this->downstreamBuffer = downstreamBuffer;
 
     ManagedBuffer upstreamBuffer;
 
-    DMESG("%s %p\n", "Audio Processor connecting to upstream, Pointer to me : ", this);
+    DMESG("%s %p\n", "Audio Processor connecting to upstream, Pointer to me : ", this); // REMOVE ???
 
-    if(connectImmediately)
+    if (connectImmediately)
     {
         upstream.connect(*this);
         activated = true;
     }
 }
 
-MicroBitAudioProcessor::~MicroBitAudioProcessor()
-{
-    //TODO fill out these? or not needed now malloc is gone?
-}
+MicroBitAudioProcessor::~MicroBitAudioProcessor() {}
 
 /**
  * Return latest FFT Data.
@@ -69,7 +61,7 @@ MicroBitAudioProcessor::~MicroBitAudioProcessor()
  */
 ManagedBuffer MicroBitAudioProcessor::pull()
 {
-    if(!recording)
+    if (!recording)
         this->recording = true;
 
     return downstreamBuffer;
@@ -90,8 +82,8 @@ void MicroBitAudioProcessor::connect(DataSink &downstream)
  */
 int MicroBitAudioProcessor::pullRequest()
 {
-    // DMESG("In MicroBitAudioProcessor - pullRequest - Start."); // REMOVE
-    fiber_sleep(1);
+    // Take a timestamp as soon as the data is received.
+    this->timestamp = system_timer_current_time_us();
 
     upstreamBuffer = upstream.pull();
     
@@ -100,10 +92,10 @@ int MicroBitAudioProcessor::pullRequest()
         return DEVICE_OK;
 
     // Transform the data in the required input format for the arm_rfft_fast_f32, i.e. float32_t*.
+    // DMESG("upstream format = %d", this->bytesPerSample); // Should be 2.
     this->bytesPerSample = DATASTREAM_FORMAT_BYTES_PER_SAMPLE(this->upstream.getFormat());
-    // DMESG("upstream format = %d", this->bytesPerSample); // REMOVE should be 2.
     int sampleCount = upstreamBuffer.length() / bytesPerSample;
-    // DMESG("sampleCount = %d", sampleCount); // REMOVE should be 512 / 2 = 256
+    // DMESG("sampleCount = %d", sampleCount); // Should be 512 / 2 = 256
 
     // Initialize the exact amount of space needed.
     float32_t fftInBuffer[sampleCount];
@@ -144,26 +136,31 @@ int MicroBitAudioProcessor::pullRequest()
     // Compute power.
     arm_cmplx_mag_squared_f32(complexFFT, powerFFT, FFT_SAMPLES_HALF);
     // Make sure to start from the second entry.
-    arm_max_f32(&powerFFT[1], FFT_SAMPLES_HALF - 1, &firstHarValue, &firstHarIndex);
+    arm_max_f32(&powerFFT[1], FFT_SAMPLES_HALF - 1, &firstHarPower, &firstHarIndex);
 
     // Correcting index.
-    firstHarIndex += 1;
+    firstHarIndex++;
 
     // TODO check if this really works.
-    // Do Parabolic Interpolation.
+    // Parabolic Interpolation.
     float32_t offsetTop = (powerFFT[firstHarIndex + 1] - powerFFT[firstHarIndex - 1]);
     float32_t offsetBottom = 2 * ((2 * powerFFT[firstHarIndex]) - powerFFT[firstHarIndex - 1] - powerFFT[firstHarIndex + 1]);
     float32_t parabolicOffset = offsetTop / offsetBottom;
 
-    // // Get second harmonic - remove first harmonic and run again.
-    // powerFFT[firstHarIndex] = 0;
-    
-    float frequencyDetected = BIN_WIDTH * ((float) firstHarIndex + (float) parabolicOffset);
-    // Print the frequency value.
-    lastFreq = (int) frequencyDetected;
-    DMESG("frequencyDetected = %d", (int) frequencyDetected); // REMOVE
+    firstHarmonic = BIN_WIDTH * ((float) firstHarIndex + (float) parabolicOffset) + BIN_WIDTH_HALF;
 
-    // TODO
+    // Loop through the values of the map.
+    for (const auto &pair : eventFrequencyLevels)
+    {
+        FrequencyLevel* level = pair.second;
+
+        if (powerFFT[FREQ_TO_IDX(level->frequency)] >= level->threshold)
+        {
+            Event e(DEVICE_ID_AUDIO_PROCESSOR, (uint8_t) pair.first, this->timestamp, CREATE_AND_FIRE);
+        }
+    }
+
+    // TODO fix the downstream communication.
     /* if (downstream != NULL)
     {
         outputBuffer.setByte(0, (uint8_t)closestNote);
@@ -180,39 +177,70 @@ int MicroBitAudioProcessor::pullRequest()
         downstream->pullRequest();
     } */
 
-    // DMESG("In MicroBitAudioProcessor - pullRequest - End."); // REMOVE
     return DEVICE_OK;
 }
 
 /**
- * Sends an event that a note was detected
+ * Subscribe to a specific frequency with a given threshold level.
  *
- * @param letter Which letter was detected
+ * @param frequency The desired frequency to be tracked.
+ * @param threshold The sensitivity at which the frequency is reported as harmonic. Subject to calibration.
+ * 
+ * @return An event code used to register an event handler.
+ * @note This should be followed by a call to listen() with the returned event code.
+ * 
+ * TODO need to make this call safe. I.e. no fix corner cases.
+ * TODO Switch to try_emplace with C++17.
  */
-void MicroBitAudioProcessor::sendEvent(char letter)
+uint8_t MicroBitAudioProcessor::subscribe(uint16_t frequency, uint16_t threshold)
 {
-    std::map<char, int>::iterator it;
+    // Reserve 0 for the "all" event.
+    uint8_t ctr = 1;
+    bool result = false;
 
-    for(it = eventCode.begin(); it != eventCode.end(); ++it)
+    while (!result)
     {
-        if(it->first == letter && it->first != lastEventSent)
-        {
-            lastEventSent = it->first;
-            Event e(DEVICE_ID_AUDIO_PROCESSOR, it->second);
-            return;
-        }
+        std::tie(std::ignore, result) = eventFrequencyLevels.emplace(ctr++, new FrequencyLevel(frequency, threshold));
+
+        if (ctr == 255 && !result) return 0;
     }
+
+    // If there is an available event code, return it.
+    return ctr;
 }
+
+/**
+ * Unsubscribe from a specific event.
+ *
+ * @param eventCode The code of the event that should stop producing such events.
+ * 
+ * @note This should be followed by a call to ignore() with the provided event code.
+ */
+void MicroBitAudioProcessor::unsubscribe(uint8_t eventCode)
+{
+    eventFrequencyLevels.erase(eventCode);
+}
+
+/**
+ * Sends an event that a range was detected.
+ *
+ * @param range The index assigned to the detected range.
+ * @param detectedAt
+ */
+// void MicroBitAudioProcessor::sendEvent(uint8_t range, CODAL_TIMESTAMP timestamp)
+// {
+//     Event e(DEVICE_ID_AUDIO_PROCESSOR, range, timestamp);
+// }
 
 /**
  * Determines the harmonic frequency from a square wave FFT output
  *
  * @return DEVICE_OK on success.
  */
-int MicroBitAudioProcessor::getClosestNoteSquare()
+/* int MicroBitAudioProcessor::getClosestNoteSquare()
 {
     // Create copy so we still have reference to index.
-    for(int i = 0; i < (int) FFT_SAMPLES / 2; i++)
+    for (int i = 0; i < (int) FFT_SAMPLES / 2; i++)
     {
         copy[i] = powerFFT[i];
     }
@@ -223,11 +251,11 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     bool pass = true;
     int leeway = 6;
 
-    while(i < NUM_PEAKS)
+    while (i < NUM_PEAKS)
     {
         arm_max_f32(copy , FFT_SAMPLES / 2, &firstHarValue, &firstHarIndex);       
         pass = true;
-        if(i < 1)
+        if (i < 1)
         {
             peaks[i].value = (int) firstHarValue;
             peaks[i].index = firstHarIndex;
@@ -235,14 +263,14 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
         }
         else
         {
-            for(int k = 0; k < i; k ++)
+            for (int k = 0; k < i; k ++)
             {
-                if((int) peaks[k].index < (int) firstHarIndex + leeway && (int) peaks[k].index > (int) firstHarIndex - leeway)
+                if ((int) peaks[k].index < (int) firstHarIndex + leeway && (int) peaks[k].index > (int) firstHarIndex - leeway)
                 {
                     pass = false;
                 }
             }
-            if(pass)
+            if (pass)
             {
                 peaks[i].value = (int) firstHarValue;
                 peaks[i].index = firstHarIndex;
@@ -255,15 +283,15 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     
     std::unordered_map<int, int> hash3;
     distancesPointer = 0;
-    for(int i = 0; i < NUM_PEAKS; i++)
+    for (int i = 0; i < NUM_PEAKS; i++)
     {
-        for(int j = 0; j < NUM_PEAKS; j++)
+        for (int j = 0; j < NUM_PEAKS; j++)
         {
-            if(i != j)
+            if (i != j)
             {
                 int dist = (int) abs(peaks[i].index - peaks[j].index);
                 //48 = middle C, 91 = Middle B - EXPAND if expanding range
-                if(dist > 45 && dist < 100)
+                if (dist > 45 && dist < 100)
                 {
                     distances[distancesPointer] = dist;
                     hash3[(int)distances[(int)distancesPointer]]++;
@@ -280,14 +308,14 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     int secondCount = 0;
     int secondHarmonicResult = -1;
 
-    for(auto i : hash3)
+    for (auto i : hash3)
     {
-        if(count < i.second)
+        if (count < i.second)
         {
             result = i.first;
             count = i.second;
         }
-        if(secondCount < i.second && i.first != result)
+        if (secondCount < i.second && i.first != result)
         {
             secondHarmonicResult = i.first;
             secondCount = i.second;
@@ -304,27 +332,27 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     int binPointer = 0;
     highestBinBuffer[0] = (int) freqDetected;
 
-    for(int i = 0; i < NUM_RUNS_AVERAGE-1 ; i ++)
+    for (int i = 0; i < NUM_RUNS_AVERAGE-1 ; i ++)
     {
         highestBins[highestBinBuffer[binPointer++]]++;
     }
 
     // Average over a few runs to improve accuracy.
-    if(NUM_RUNS_AVERAGE > 2)
+    if (NUM_RUNS_AVERAGE > 2)
     {
         int countAverager = 0;
         int averageResult = -1;
 
-        for(auto i : highestBins)
+        for (auto i : highestBins)
         {
-            if(countAverager < i.second && i.first != 0)
+            if (countAverager < i.second && i.first != 0)
             {
                 averageResult = i.first;
                 countAverager = i.second;
             }
         }
 
-        if(countAverager > AVERAGE_THRESH)
+        if (countAverager > AVERAGE_THRESH)
         {
             // Confidence in average should be over AVERAGE_THRESH of total samples.
             lastFreq = (int) averageResult;
@@ -339,7 +367,7 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
         // Just check if current is same as the last.
         lastFreq = (int) freqDetected;
 
-        if((int) lastFreq == (int) lastLastFreq)
+        if ((int) lastFreq == (int) lastLastFreq)
         {
             lastLastFreq = (int) lastFreq;
         }
@@ -351,7 +379,7 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     }
 
     // Clean up.
-    for(int i = 0; i < NUM_PEAKS; i++)
+    for (int i = 0; i < NUM_PEAKS; i++)
     {
         peaks[i].value = 0;
         peaks[i].index = 0;
@@ -359,7 +387,7 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
     }
 
     return lastFreq;
-}
+} */
 
 /**
  * Returns a letter note that the given frequency is closest too
@@ -367,30 +395,30 @@ int MicroBitAudioProcessor::getClosestNoteSquare()
  * @param frequency integer frequency to get the closest note too
  * @return Char closest to frequency
  */
-char MicroBitAudioProcessor::frequencyToNote(int frequency){
-    if(250<frequency && frequency <277){
+/* char MicroBitAudioProcessor::frequencyToNote(int frequency){
+    if (250<frequency && frequency <277){
         return 'C'; //C4
     }
-    if(277<frequency && frequency <311){
+    if (277<frequency && frequency <311){
         return 'D'; //D4
     }
-    if(311<frequency && frequency <340){
+    if (311<frequency && frequency <340){
         return 'E'; //E4
     }
-    if(340<frequency && frequency <370){
+    if (340<frequency && frequency <370){
         return 'F'; //F4
     }
-    if(370<frequency && frequency <415){
+    if (370<frequency && frequency <415){
         return 'G'; //G4
     }
-    if(415<frequency && frequency <466){
+    if (415<frequency && frequency <466){
         return 'A'; //A4
     }
-    if(466<frequency && frequency <515){
+    if (466<frequency && frequency <515){
         return 'B'; //B4
     }
     return 'X';
-}
+} */
 
 /**
  * Returns a frequency that the letter note is equivalent too
@@ -398,61 +426,42 @@ char MicroBitAudioProcessor::frequencyToNote(int frequency){
  * @param note what note to look up
  * @return char frequency of note
  */
-int MicroBitAudioProcessor::noteToFrequency(char note){
-    if('C'){
+/* int MicroBitAudioProcessor::noteToFrequency(char note){
+    if ('C'){
         return 261; //C4
     }
-    if('D'){
+    if ('D'){
         return 293; //D4
     }
-    if('E'){
+    if ('E'){
         return 329; //E4
     }
-    if('F'){
+    if ('F'){
         return 349; //F4
     }
-    if('G'){
+    if ('G'){
         return 391; //G4
     }
-    if('A'){
+    if ('A'){
         return 440; //A4
     }
-    if('B'){
+    if ('B'){
         return 493; //B4
     }
     return 0;
-}
+} */
 
 /**
- * Get the last detected primary frequency
+ * Get the last detected first harmonic.
  *
- * @return lastFreq - Freqeuncy detected
+ * @return The primary frequency detected.
  */
 int MicroBitAudioProcessor::getFrequency()
 {
-    // DMESG("In MicroBitAudioProcessor - getFrequency - Start\n"); // REMOVE
-    if(!recording)
-    {
-        // DMESG("In MicroBitAudioProcessor - getFrequency - in check if recording\n"); // REMOVE
+    if (!recording)
         startRecording();
-    }
 
-    return lastFreq;
-}
-
-/**
- * Get the last detected secondary frequency
- *
- * @return lastFreq - Freqeuncy detected
- */
-int MicroBitAudioProcessor::getSecondaryFrequency()
-{
-    if(!recording)
-    {
-        startRecording();
-    }
-
-    return secondHarmonicFreq;
+    return this->firstHarmonic;
 }
 
 /**
@@ -460,14 +469,14 @@ int MicroBitAudioProcessor::getSecondaryFrequency()
  */
 void MicroBitAudioProcessor::startRecording()
 {
-    if(!activated)
+    if (!activated)
     {
         upstream.connect(*this);
         activated = true;
     }
 
     this->recording = true;
-    DMESG("START RECORDING\n");
+    DMESG("Start Recording\n");
 }
 
 /**
@@ -476,7 +485,7 @@ void MicroBitAudioProcessor::startRecording()
 void MicroBitAudioProcessor::stopRecording()
 {
     this->recording = false;
-    DMESG("STOP RECORDING\n");
+    DMESG("Stop Recording\n");
 }
 
 /**
@@ -491,19 +500,41 @@ void MicroBitAudioProcessor::playFrequency(char note, int ms)
     playFrequency(frequency, ms);
 }
 
-// Default peak constructor.
-PeakDataPoint::PeakDataPoint()
+FrequencyLevel::FrequencyLevel(uint16_t frequency, uint16_t threshold)
 {
-    this->value = 0;
-    this->index = 0;
+    this->frequency = frequency;
+    this->threshold = threshold;
 }
 
-// Peak data point object used in claculations for square waves.
-PeakDataPoint::PeakDataPoint(int8_t value, int index)
+// TODO comments.
+FrequencyLevel::FrequencyLevel()
 {
-    this->value = value;
-    this->index = index;
+    this->frequency = 0;
+    this->threshold = 0;
 }
+
+/**
+ * Destructor.
+ */
+FrequencyLevel::~FrequencyLevel() {}
+
+/**
+ * Default peak constructor.
+ */
+// PeakDataPoint::PeakDataPoint()
+// {
+//     this->value = 0;
+//     this->index = 0;
+// }
+
+/**
+ * Peak data point object used in claculations for square waves.
+ */
+// PeakDataPoint::PeakDataPoint(int8_t value, int index)
+// {
+//     this->value = value;
+//     this->index = index;
+// }
 
 /**
  *  Determine the data format of the buffers streamed out of this component.
@@ -522,8 +553,7 @@ int MicroBitAudioProcessor::setFormat(int format)
     return DEVICE_NOT_SUPPORTED;
 }
 
-// destructor
-PeakDataPoint::~PeakDataPoint()
-{
-
-}
+/**
+ * Destructor.
+ */
+// PeakDataPoint::~PeakDataPoint() {}

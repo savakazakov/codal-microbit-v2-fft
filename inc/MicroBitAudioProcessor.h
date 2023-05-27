@@ -29,35 +29,43 @@ DEALINGS IN THE SOFTWARE.
 
 // Mic's adc is usually set to a 45.(45) microseconds sampling period.
 // This translates to a sample rate of 22000 Hz.
+// TODO Make this dynamic and hence not a macro.
 #define MIC_SAMPLE_RATE     22000
 
 // The size of the FFT. This should be the same as the number of samples.
 // I.e. a 256 point signal.
+// TODO Make this dynamic and hence not a macro.
 #define FFT_SAMPLES         256
 #define FFT_SAMPLES_HALF    (FFT_SAMPLES / 2)
 #define IFFT_FLAG           0
 
 // The bin width (also called line spacing) defines the frequency resolution of the FFT.
 #define BIN_WIDTH           ((float) MIC_SAMPLE_RATE / FFT_SAMPLES)
+#define BIN_WIDTH_HALF      ((float) MIC_SAMPLE_RATE / FFT_SAMPLES / 2)
+#define FREQ_TO_IDX(X)      (int) (X / BIN_WIDTH)
 
 #define NUM_PEAKS           12      // REMOVE
 #define CYCLE_SIZE          128     // REMOVE
-#define NUM_RUNS_AVERAGE    3 //too big means the notes wont change over to the new one as quickly // REMOVE
+#define NUM_RUNS_AVERAGE    3 //too big means the notes won't change over to the new one as quickly // REMOVE
 #define AVERAGE_THRESH      NUM_RUNS_AVERAGE / 2 // REMOVE
+
+// Events.
+#define MICROBIT_RADAR_EVT_DATAGRAM 1 // Event to signal that a new datagram has been received. // REMOVE
 
 class MicroBitAudioProcessor;
 
-class PeakDataPoint
+// A Plain Old Data (POD) class used as a tuple to register
+// frequency levels that should produce events when detected.
+class FrequencyLevel
 {
     public:
-    int8_t                  value;
-    int                     index;
-    PeakDataPoint*          pair = NULL;
+    uint16_t frequency;
+    uint16_t threshold;
 
     public:
-    PeakDataPoint(int8_t value, int index);
-    PeakDataPoint();
-    ~PeakDataPoint();
+    FrequencyLevel(uint16_t frequency, uint16_t threshold);
+    FrequencyLevel();
+    ~FrequencyLevel();
 };
 
 /**
@@ -67,8 +75,8 @@ class PeakDataPoint
  */
 class MicroBitAudioProcessor : public DataSink, public DataSource
 {
-    public:
     // On demand activated.
+    public:
     bool                    recording = false;
     bool                    activated = false;
 
@@ -83,13 +91,14 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
     uint8_t                 ifftFlag;
     arm_rfft_fast_instance_f32 fftInstance;
     arm_status              status;
+
     // Used to extract the bin of the first/second harmonics.
-    float32_t               firstHarValue;
+    float32_t               firstHarmonic;
+    float32_t               firstHarPower;
     uint32_t                firstHarIndex = 0;
-    float32_t               secondHarValue;
+    float32_t               secondHarPower;
     uint32_t                secondHarIndex = 0;
 
-    // TODO make these static.
     // complexFFT is the output of performing the FFT calculation.
     // complexFFT = { real[0], imag[0], real[1], imag[1], real[2], imag[2] ... real[(N/2)-1], imag[(N/2)-1 }
     // realFFT and imagFFT are used to separate the real and imaginary parts.
@@ -97,45 +106,41 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
     float32_t               complexFFT[FFT_SAMPLES], realFFT[FFT_SAMPLES_HALF], imagFFT[FFT_SAMPLES_HALF],
                             angleFFT[FFT_SAMPLES_HALF], powerFFT[FFT_SAMPLES_HALF], copy[FFT_SAMPLES_HALF];
 
-    int distances[NUM_PEAKS * NUM_PEAKS]; // REMOVE
-    int distancesPointer;   // REMOVE
+    // Used for the detection of frequencies.
+    CODAL_TIMESTAMP         timestamp;
 
-    char secondHarmonic; // REMOVE
-    int lastFreq;        // REMOVE
-    int lastLastFreq;    // REMOVE
-    int secondHarmonicFreq; // REMOVE
-    int highestBinBuffer[NUM_RUNS_AVERAGE]; // REMOVE
-    int timer = 0;                          // REMOVE
-    int timer2 = 0;                         // REMOVE
-    char lastEventSent = 'X';               // REMOVE
-    char lastDetected = 'X';                // REMOVE
-    char lastDetectedS = 'X';               // REMOVE
+    // A map to hold any frequencies that user code is interested in.
+    std::map<uint8_t, FrequencyLevel *> eventFrequencyLevels;
 
-    int bytesPerSample;
-    float32_t *fftInBuffer;
+    int                     bytesPerSample;
+    float32_t               *fftInBuffer;
 
-    PeakDataPoint peaks[NUM_PEAKS];
-
-    // Stored (char cast as int)Note..(int)Freq digit 1, freq digit 2, digit 3, freq digit 4, (char cast as int)Note ...
-    uint8_t outBuf[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     ManagedBuffer downstreamBuffer;
     ManagedBuffer upstreamBuffer;
 
-    public : MicroBitAudioProcessor(DataSource &source, bool connectImmediately = true);
+    public:
+    MicroBitAudioProcessor(DataSource &source, bool connectImmediately = true);
     ~MicroBitAudioProcessor(); 
     virtual int pullRequest();
     virtual void connect(DataSink &downstream);
     virtual ManagedBuffer pull();
-    int getClosestNoteSquare();
-    char getClosestNote();
-    int getSecondaryFrequency();
-    char getSecondaryNote();
+
+    // Subsriber pattern.
+    uint8_t subscribe(uint16_t lowerBound, uint16_t upperBound);
+    void unsubscribe(uint8_t eventCode);
+
+    // int getClosestNoteSquare();
+    // char getClosestNote();
+    // int getSecondaryFrequency();
+    // char getSecondaryNote();
+
     int getFrequency();
-    char frequencyToNote(int frequency);
-    int setDivisor(int d);
+
+    // char frequencyToNote(int frequency);
+
     void startRecording();
     void stopRecording();
-    void sendEvent(char letter);
+
     void playFrequency(int frequency, int ms);
     void playFrequency(char note, int ms);
     int noteToFrequency(char note);
@@ -150,7 +155,5 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
      */
     virtual int setFormat(int format);
 };
-
-
 
 #endif
