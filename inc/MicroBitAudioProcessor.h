@@ -30,12 +30,13 @@ DEALINGS IN THE SOFTWARE.
 // Mic's adc is usually set to a 45.(45) microseconds sampling period.
 // This translates to a sample rate of 22000 Hz.
 // TODO Make this dynamic and hence not a macro.
-#define MIC_SAMPLE_RATE     22000
+// TODO: Remove this, this is defined in MicroBitRadar.
+#define MIC_SAMPLE_RATE     100000
 
 // The size of the FFT. This should be the same as the number of samples.
 // I.e. a 256 point signal.
 // TODO Make this dynamic and hence not a macro.
-#define FFT_SAMPLES         256
+#define FFT_SAMPLES         512
 #define FFT_SAMPLES_HALF    (FFT_SAMPLES / 2)
 #define IFFT_FLAG           0
 
@@ -44,13 +45,8 @@ DEALINGS IN THE SOFTWARE.
 #define BIN_WIDTH_HALF      ((float) MIC_SAMPLE_RATE / FFT_SAMPLES / 2)
 #define FREQ_TO_IDX(X)      (int) (X / BIN_WIDTH)
 
-#define NUM_PEAKS           12      // REMOVE
-#define CYCLE_SIZE          128     // REMOVE
-#define NUM_RUNS_AVERAGE    3 //too big means the notes won't change over to the new one as quickly // REMOVE
-#define AVERAGE_THRESH      NUM_RUNS_AVERAGE / 2 // REMOVE
-
-// Events.
-#define MICROBIT_RADAR_EVT_DATAGRAM 1 // Event to signal that a new datagram has been received. // REMOVE
+// Event to signal that a new datagram has been received.
+#define MICROBIT_RADAR_EVT_DATAGRAM 1 // REMOVE ???
 
 class MicroBitAudioProcessor;
 
@@ -60,10 +56,10 @@ class FrequencyLevel
 {
     public:
     uint16_t frequency;
-    uint16_t threshold;
+    uint32_t threshold;
 
     public:
-    FrequencyLevel(uint16_t frequency, uint16_t threshold);
+    FrequencyLevel(uint16_t frequency, uint32_t threshold);
     FrequencyLevel();
     ~FrequencyLevel();
 };
@@ -80,7 +76,7 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
     bool                    recording = false;
     bool                    activated = false;
 
-    private:
+    // private: REMOVE comment should be private.
     DataSource              &upstream;   
     DataSink                *downstream = NULL;
 
@@ -110,13 +106,13 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
     CODAL_TIMESTAMP         timestamp;
 
     // A map to hold any frequencies that user code is interested in.
-    std::map<uint8_t, FrequencyLevel *> eventFrequencyLevels;
+    std::map<uint8_t, FrequencyLevel*> eventFrequencyLevels;
 
     int                     bytesPerSample;
     float32_t               *fftInBuffer;
 
-    ManagedBuffer downstreamBuffer;
-    ManagedBuffer upstreamBuffer;
+    ManagedBuffer           downstreamBuffer;
+    ManagedBuffer           upstreamBuffer;
 
     public:
     MicroBitAudioProcessor(DataSource &source, bool connectImmediately = true);
@@ -126,7 +122,7 @@ class MicroBitAudioProcessor : public DataSink, public DataSource
     virtual ManagedBuffer pull();
 
     // Subsriber pattern.
-    uint8_t subscribe(uint16_t lowerBound, uint16_t upperBound);
+    uint8_t subscribe(uint16_t frequency, uint32_t threshold);
     void unsubscribe(uint8_t eventCode);
 
     // int getClosestNoteSquare();

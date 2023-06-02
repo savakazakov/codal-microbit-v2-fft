@@ -343,7 +343,7 @@ void MicroBit::onListenerRegisteredEvent(Event evt)
         case DEVICE_ID_AUDIO_PROCESSOR:
             // A listener has been registered for the fft audio processpr
             // We need to start running the processor when event activated.
-            audio.fft->startRecording();
+            // audio.fft->startRecording();
             break;
     }
 }
